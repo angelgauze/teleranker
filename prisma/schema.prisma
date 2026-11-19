@@ -1,0 +1,170 @@
+// Prisma schema for the telecom promo comparison site.
+//
+// Design notes (see AGENTS.md sections 5 and 14):
+// - Unknown, unlimited and "not applicable" are distinct states, never 0.
+// - Money is stored in integer centavos to avoid floating-point rounding.
+// - Provider-specific parsing never reaches this layer; records are
+//   normalised and validated before they are written.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A mobile network operator. The list is data-driven so new providers can be
+/// added without a code change.
+model Provider {
+  id         String   @id
+  name       String
+  websiteUrl String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  promos     Promo[]
+  reviews    Review[]
+  scrapeRuns ScrapeRun[]
+}
+
+/// Network generation a promo actually works on. UNKNOWN is a first-class
+/// state: 5G support is never inferred from the provider's network.
+enum PromoCompatibility {
+  FOUR_G
+  FIVE_G
+  FOUR_G_AND_FIVE_G
+  UNKNOWN
+}
+
+/// TOTAL = a fixed data allowance (dataGb is set).
+/// UNLIMITED = no cap stated by the provider.
+/// NONE = the promo genuinely includes no data.
+/// UNKNOWN = the source did not say, or could not be verified.
+enum DataAllocationKind {
+  TOTAL
+  UNLIMITED
+  NONE
+  UNKNOWN
+}
+
+enum ValidityUnit {
+  DAY
+  WEEK
+  MONTH
+}
+
+enum PromoStatus {
+  ACTIVE
+  OUTDATED
+  UNAVAILABLE
+}
+
+model Promo {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  /// Provider-facing identifier used to match records between collection runs.
+  externalKey String?
+  name        String
+  description String?
+
+  /// Price in centavos (PHP). 10000 = PHP 100.00.
+  priceCentavos Int
+
+  dataKind  DataAllocationKind @default(UNKNOWN)
+  /// Set only when dataKind = TOTAL. This is the headline allowance, which may
+  /// include app-specific or 5G-only allocations.
+  dataGb    Decimal?          @db.Decimal(10, 2)
+  /// The part of dataGb usable on any site/app, when the provider publishes a
+  /// breakdown. Rankings use this so app-specific data is compared fairly.
+  allAccessGb Decimal?        @db.Decimal(10, 2)
+  /// Notes for inclusions that are not modelled yet (app-specific, night,
+  /// rollover, throttled data) so the uncertainty is preserved.
+  dataNotes String?
+
+  /// Null when the validity period is not published. Null means unknown,
+  /// never zero.
+  validityValue Int?
+  validityUnit  ValidityUnit?
+
+  compatibility PromoCompatibility @default(UNKNOWN)
+
+  /// Calls/texts: null = unknown, 0 = explicitly none.
+  callsUnlimited Boolean?
+  callsIncluded  Int?
+  textsUnlimited Boolean?
+  textsIncluded  Int?
+
+  status         PromoStatus @default(ACTIVE)
+  sourceUrl      String?
+  lastVerifiedAt DateTime?
+  /// Raw provider metadata kept for traceability.
+  sourceMetadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([providerId, externalKey])
+  @@index([providerId, status])
+  @@index([priceCentavos])
+}
+
+/// Moderation is not implemented yet; the field exists so a review can be
+/// hidden without losing it once moderation is decided (AGENTS.md section 14).
+enum ReviewStatus {
+  PUBLISHED
+  HIDDEN
+}
+
+model Review {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  /// Null means the review is anonymous: a blank name is never stored as "".
+  displayName String?
+  /// Capped at 400 characters; enforced in Zod and by the column type.
+  body        String       @db.VarChar(400)
+  status      ReviewStatus @default(PUBLISHED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([providerId, status])
+}
+
+enum ScrapeRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// One collection attempt for one provider. Publishing is tracked separately
+/// so a failed or empty run can leave the last-known-good data in place.
+model ScrapeRun {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  status           ScrapeRunStatus @default(RUNNING)
+  startedAt        DateTime        @default(now())
+  completedAt      DateTime?
+  recordsCollected Int             @default(0)
+  recordsAccepted  Int             @default(0)
+  recordsRejected  Int             @default(0)
+  /// True only when validated records from this run replaced the published set.
+  published        Boolean         @default(false)
+
+  /// Diagnostic text safe for administrators. Never tokens or credentials.
+  errorDetail String?
+  /// Raw collected payload, kept separate from published Promo rows.
+  rawPayload  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([providerId, startedAt])
+}
