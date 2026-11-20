@@ -1,7 +1,7 @@
 # ADR 0001 — Technology stack
 
-- **Status:** Accepted, 2026-11-19 (still to be confirmed by the project team, `AGENTS.md` §14)
-- **Deciders:** Project owner; student team pending confirmation
+- **Status:** Accepted, 2026-11-19; confirmed by the project team (recorded 2026-11-20)
+- **Deciders:** Project owner and student team
 - **Supersedes:** none
 
 ## Context

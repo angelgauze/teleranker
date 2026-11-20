@@ -1,90 +1,195 @@
-# Provider collection and compliance
+# Providers: collection and compliance
 
-Every collector decision is recorded here with the evidence behind it and a
-date, so it is re-checked rather than assumed (`AGENTS.md` §7).
-
-Checked on **2026-11-19** from this environment.
+How each provider's promos get into TeleRanker, and why. Re-check a provider's
+`robots.txt`, terms and page before changing its collector (`AGENTS.md` §7).
 
 ## Summary
 
-| Provider | Mode | Source | robots.txt | Notes |
-| --- | --- | --- | --- | --- |
-| Globe | Automated | `https://www.globe.com.ph/prepaid/promos` | Allowed | Server-rendered cards |
-| DITO | Automated | `https://dito.ph/prepaid` | Allowed | Server-rendered cards |
-| Smart | **Manual entry only** | — | Unreadable | Bot-protection challenge |
+| Provider | Mode | Source page | Reason |
+| --- | --- | --- | --- |
+| DITO | Automated | `https://dito.ph/prepaid` | Server-rendered promo cards; `robots.txt` allows the page |
+| Globe | Automated, manual import as fallback | `https://www.globe.com.ph/prepaid/promos` | The site answers with a bot challenge, so runs fail safely until it lifts |
+| Smart | Manual only | Smart store promo pages | Bot challenge on the main site; terms prohibit automated access |
+| TNT | Manual only | Smart store promo pages | Smart brand, same terms as Smart |
+| GOMO | Manual only | `https://www.gomo.ph/data-offers` | Full catalogue only exists in page JavaScript |
 
-## Globe
-
-- `https://www.globe.com.ph/robots.txt` → HTTP 200. `/prepaid/promos` is not
-  disallowed. Faceted URLs (`/*?*f[*`) and `/content/`, `/search/` are
-  disallowed and are never requested.
-- `https://www.globe.com.ph/prepaid/promos` → HTTP 200, server-rendered HTML
-  containing `section-b2c-promo__card-list` cards.
-- 9 cards found: 7 mobile promos collected, 2 "Globe Starlink" promos skipped
-  because satellite-only data is not comparable with mobile data.
-- Card shape: `.card-title` for the name, a headline `p.card-text` such as
-  `20 GB Data | ₱99/7 Days`, and `<li>` inclusions. The all-access figure comes
-  from the `N GB for All Sites` line.
+`termsReviewed` is `false` for every provider until a person signs off its
+terms, which is required before scheduled production runs.
 
 ## DITO
 
-- `https://dito.ph/robots.txt` → HTTP 200. `/prepaid` is not disallowed.
-  Form, preview and `hsLang` URLs are disallowed and are never requested.
-- `https://dito.ph/prepaid` → HTTP 200, server-rendered cards
-  (`div.card-universal-layout`).
-- 39 cards found: 36 collected, 3 skipped (`PLAY IT`, `LIVE IT`, `WORK IT`)
-  because they publish no price. No price is ever guessed.
-- Cards that sell "Unlimited 5G" plus a separate 4G allowance are stored as
-  `UNLIMITED` with the allowance kept in `dataNotes`, so they are not scored on
-  an invented GB figure.
+- `robots.txt` allows `/prepaid`; form, preview and `hsLang` URLs are
+  disallowed and never requested.
+- Each card (`div.card-universal-layout`) becomes one promo. Cards without a
+  published price (`PLAY IT`, `LIVE IT`, `WORK IT`) are skipped; no price is
+  guessed.
+- "Unlimited 5G" cards with a separate 4G allowance are stored as `UNLIMITED`,
+  with the allowance kept in `dataNotes`, so they are not scored on an invented
+  GB figure.
 
-## Smart — why collection is disabled
+## Globe
 
-- `https://smart.com.ph/robots.txt` redirects to a 404 page that returns HTML,
-  so no rules could be read.
-- `https://smart.com.ph/Pages/promos` does not return promo content. It returns
-  an obfuscated JavaScript challenge (`HTTP 247`), which is an access control.
-  `AGENTS.md` §7 and §2 explicitly prohibit bypassing access controls,
-  CAPTCHAs or similar restrictions, so building a collector around it is out of
-  scope.
-- **Action:** Smart promos must be entered or overridden by an administrator.
-  The registry marks the provider `manual-only` and the CLI refuses to collect
-  it.
+- The site answers every request, including `robots.txt`, with a bot challenge
+  (HTTP 403). The fetcher stops on any `robots.txt` failure other than 404/410,
+  so the run fails safely, alerts and publishes nothing. The challenge is never
+  worked around (no browser user agent, headless browser or cookie replay).
+- The collector stays registered as automated. Meanwhile Globe promos come from
+  the manual import; once a run succeeds again, it replaces the hand-entered set
+  (see [Maintenance](#maintenance-runs-on-hold-and-errors) for the safety check).
+- When the page was reachable: `robots.txt` allowed `/prepaid/promos`
+  (faceted `?f[` URLs, `/content/` and `/search/` are disallowed). Cards
+  (`section-b2c-promo__card-list`) give the name in `.card-title`, a headline
+  such as `20 GB Data | ₱99/7 Days`, and inclusions as `<li>`; the all-access
+  figure comes from the `N GB for All Sites` line. "Globe Starlink" cards are
+  skipped because satellite data is not comparable with mobile data.
 
-## What the collectors do and do not do
+## Smart and TNT
 
-Enforced in code (`src/lib/collect/http.ts`, `robots.ts`):
+- The main site answers with a JavaScript bot challenge and its `robots.txt`
+  cannot be read. Bypassing access controls is prohibited (`AGENTS.md` §2, §7).
+- Smart's Terms of Use require users not to access the site with any robot,
+  spider, scraper or other automated means. This applies regardless of
+  `robots.txt`.
+- The Smart store (`https://store.smart.com.ph/promos-and-add-ons/`) lists
+  Smart and TNT promos and its `robots.txt` allows those paths, but the terms
+  above still apply, and its promo cards only load through ad-tracking links, so
+  a collector would be neither permitted nor reliable.
+- Both are `manual-only`: the CLI refuses to collect them. The team compiles
+  their promos from the store pages into the manual import sheet. TNT is its own
+  provider.
 
-- HTTPS only; `robots.txt` fetched once per origin and enforced before every
-  request; 404/410 robots is treated as "no rules", any other failure aborts.
-- One request per source page per run, spaced by at least 2 seconds per host.
-- Identifies itself with `TeleRankerBot/0.1` plus `SCRAPER_CONTACT` if set.
+## GOMO
+
+- No `robots.txt` (404, treated as no rules) and no bot challenge.
+- Only 8 featured offers are server-rendered, mixing mobile data, no-expiry,
+  roaming and fiber. The full catalogue exists only in the page's JavaScript
+  state, which collectors may not run, and some offers are app-only.
+- `manual-only`: an automated run would only see the featured subset and
+  misrepresent the catalogue.
+
+## Manual import
+
+For Smart, TNT and GOMO, and for Globe while its runs fail. The team transcribes
+promos from the official pages into a spreadsheet kept **outside this
+repository**, exports the "Promos" sheet as CSV, and loads it:
+
+```bash
+pnpm import:promos --file=<path.csv>                   # validate only
+pnpm import:promos --file=<path.csv> --publish         # write to the database
+pnpm import:promos --file=<path.csv> --publish --replace-collected
+```
+
+- Every row passes `promoInputSchema`. If any row fails, nothing is written and
+  each error is printed with its line number.
+- `brand_id` must be a provider registered in `src/lib/collect/registry.ts`.
+- All providers in the file are written in one transaction (all or nothing),
+  with origin `MANUAL`. Promos missing from a newer sheet become `UNAVAILABLE`.
+- A provider with active collector-published promos is skipped unless
+  `--replace-collected` is passed, so a sheet never silently overwrites scraped
+  data. Otherwise the most recent publish for a provider wins.
+- Contributor names (`verified_by`, `entered_by`), app perks, fair-use figures
+  and the sheet's row check are not imported.
+
+Column mapping (`src/lib/manual/promo-sheet.ts`):
+
+| Sheet | Stored as |
+| --- | --- |
+| `is_unlimited_data = yes` | `UNLIMITED` (not scored) |
+| `open_gb` blank | `UNKNOWN` data |
+| `open_gb + app_gb = 0` | `NONE` (calls-only promos) |
+| `open_gb`, `app_gb` | `dataGb = open + app`; `allAccessGb = open` when app data exists |
+| `is_no_expiry = yes` | `noExpiry`: shown as "No expiry", scored on GB per ₱100, no per-day figures |
+| `validity_days` | Validity in days; blank means unknown |
+| `network_support = 5G` | `FIVE_G` (needs a 5G phone) |
+| `network_support = 4G` or `4G/5G` | `FOUR_G_AND_FIVE_G` (works on any LTE phone) |
+| `calls`/`texts = unli_allnet` | Unlimited |
+| `calls`/`texts = none` | `0` (explicitly none) |
+| `calls = limited` | Limited, with `calls_minutes`; texts have no count column, so the count stays unknown |
+| `unli_onnet` or blank | Unknown (on-net-only unlimited cannot be stored yet) |
+| `last_verified_at` | `YYYY-MM-DD` or an Excel date number, midnight Manila time; must be between 2020-01-01 and the import day |
+| `source_url` | Official link. Without one, the row links to the provider's general promo page (`promoPageUrl`), labelled as such |
+| `notes` | Promo description |
+
+## Collector rules
+
+Enforced in `src/lib/collect/http.ts` and `robots.ts`:
+
+- HTTPS only. `robots.txt` is read once per origin and enforced before every
+  request; 404/410 means no rules, any other failure stops the run.
+- One request per source page per run, at least 2 seconds apart per host.
+- Identifies as `TeleRankerBot/0.1`, plus `SCRAPER_CONTACT` if set.
 - 15 s timeout, 2 MB response cap, at most one retry on 5xx or network errors.
-- No JavaScript rendering, no authentication, no CAPTCHA solving, no rate-limit
-  circumvention, no use of undocumented internal APIs.
+- No JavaScript rendering, authentication, CAPTCHA solving, rate-limit
+  circumvention or undocumented internal APIs.
 
-## Outstanding work before scheduled production runs
+## Maintenance: runs on hold and errors
 
-1. **Terms of use review.** `termsReviewed` is `false` for every provider. A
-   person must read each provider's terms before the job is scheduled; the
-   registry field exists so this cannot be forgotten silently.
-2. **Schedule and alert channel.** Not decided (`AGENTS.md` §14).
-3. **Fixture freshness.** The regression fixtures capture the 2026-11-19 markup.
-   When a provider redesigns its page, refresh the fixture and re-run the tests.
+For the admin or maintenance team.
+
+**Why a run is held back.** A run publishes only if it collected records,
+rejected at most half of them, and kept at least half of the baseline:
+
+- the number of promos the provider's last successful published run accepted;
+- or, if no run has ever published for the provider (Globe today), the number of
+  hand-entered promos currently listed.
+
+The second rule stops a broken first run, for example after a redesign, from
+replacing a full hand-entered catalogue with a handful of promos. A held-back
+run changes nothing: the listing keeps the previous details and shows "Update
+on hold", the run is recorded with `published = false`, and an alert gives the
+reason, such as `record count dropped to 8% of the published set (3 of 36)`.
+
+**What to do.**
+
+1. Open the provider's promo page in a browser and count its promos.
+2. If the provider really lists fewer promos, publish the smaller set on
+   purpose:
+
+   ```bash
+   pnpm scrape --provider=globe --live --publish --accept-smaller-set
+   ```
+
+   This needs `--publish` and a single `--provider`, and only skips the "kept
+   at least half" check. The override is kept in the run log
+   (`ScrapeRun.rawPayload.override`) and a warning alert is sent once the set is
+   published.
+3. If the page lists about as many promos as before, the parser is broken. Do
+   not use the flag: refresh the fixture, fix the collector and its tests, and
+   keep the hand-entered set meanwhile.
+
+**Error messages** (`src/lib/db/errors.ts`):
+
+| Message | Usual cause |
+| --- | --- |
+| Database login failed (check DATABASE_URL in .env) | Wrong user or password in `.env` |
+| Database server could not be reached | PostgreSQL is not running, or wrong host/port |
+| Database does not exist (check DATABASE_URL in .env) | Database in `.env` not created |
+| A database table/column is missing (run pnpm db:migrate) | Migrations not applied |
+
+`unexpected error: …` points to a bug, not the database, and the CLIs print
+its stack trace.
+
+**Publishing is all or nothing.** A run's promos and its run log are saved in
+one transaction, and so is a whole manual import. If the database drops
+part-way, nothing changes.
+
+## Before scheduled production runs
+
+1. A person reviews each provider's terms and sets `termsReviewed`.
+2. Decide where the weekly job runs and how alerts are delivered (`AGENTS.md` §14).
+3. When a provider redesigns its page, refresh its fixture and re-run the tests.
 
 ## Adding a provider
 
-1. Find the official promo page and record its URL.
-2. Read `robots.txt` and the provider's terms; record the finding in this file
-   and in `src/lib/collect/registry.ts`.
-3. If automated collection is blocked or not permitted, register the provider
-   as `manual-only` with the reason.
-4. Write the collector in `src/lib/collect/collectors/<provider>.ts` exporting a
-   parser (`html -> PromoDraft[]`) and a `ProviderCollector`.
-5. Save a trimmed HTML fixture captured from the page, with a provenance
-   comment, and add parser tests.
-6. Search for provider-specific parsing anywhere outside `collectors/` — there
-   should be none.
+1. Find the official promo page.
+2. Read its `robots.txt` and terms, and record the finding here and in
+   `src/lib/collect/registry.ts`.
+3. If automated collection is blocked or not permitted, register it as
+   `manual-only` with the reason.
+4. Write `src/lib/collect/collectors/<provider>.ts`, exporting a parser
+   (`html -> PromoDraft[]`) and a `ProviderCollector`.
+5. Save a trimmed HTML fixture with a provenance comment, and add parser tests.
+6. Keep provider-specific parsing inside `collectors/`.
 
 ## Commands
 
@@ -99,6 +204,5 @@ pnpm scrape --provider=all --live
 pnpm scrape --provider=all --live --publish
 ```
 
-Exit code is non-zero when a run fails or is blocked, so a scheduler can alert
-on it. Every run is written to `ScrapeRun` when `--publish` is used; a blocked
-run keeps the previous published set untouched.
+The exit code is non-zero when a run fails or is held back, so a scheduler can
+alert on it.
