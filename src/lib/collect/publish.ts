@@ -28,18 +28,37 @@ export interface RunCounts {
   collected: number;
   accepted: number;
   rejected: number;
-  /** Size of the currently published set for this provider. */
+  /**
+   * Size of the set the drop guard compares against: the provider's last
+   * successful published run, or its active hand-entered set when no run
+   * has published yet (see runProviderSafely).
+   */
   previousPublishedCount: number;
 }
 
 export interface PublishDecision {
   publish: boolean;
   reason?: string;
+  /**
+   * Set when the drop guard would have blocked the run but an administrator
+   * accepted the smaller set: the guard's reason, for the run log.
+   */
+  override?: string;
+}
+
+export interface PublishOptions {
+  /**
+   * Publish even if the record count dropped below the retention ratio.
+   * Only for a person who has checked that the provider's catalogue really
+   * shrank (`pnpm scrape --accept-smaller-set`). Every other guard still applies.
+   */
+  acceptSmallerSet?: boolean;
 }
 
 export function evaluatePublish(
   counts: RunCounts,
   policy: PublishPolicy = DEFAULT_PUBLISH_POLICY,
+  options: PublishOptions = {},
 ): PublishDecision {
   if (counts.collected === 0) {
     return { publish: false, reason: "no records were collected" };
@@ -62,10 +81,10 @@ export function evaluatePublish(
   if (counts.previousPublishedCount > 0) {
     const retention = counts.accepted / counts.previousPublishedCount;
     if (retention < policy.minRetentionRatio) {
-      return {
-        publish: false,
-        reason: `record count dropped to ${Math.round(retention * 100)}% of the published set`,
-      };
+      const reason = `record count dropped to ${Math.round(retention * 100)}% of the published set (${counts.accepted} of ${counts.previousPublishedCount})`;
+      return options.acceptSmallerSet
+        ? { publish: true, override: `accepted smaller set: ${reason}` }
+        : { publish: false, reason };
     }
   }
 

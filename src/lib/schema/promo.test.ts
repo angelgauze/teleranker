@@ -80,4 +80,13 @@ describe("promoInputSchema", () => {
   it("rejects a non-URL source link", () => {
     expect(issuePaths({ ...basePromo, sourceUrl: "not a url" })).toContain("sourceUrl");
   });
+
+  it("accepts a no-expiry promo without a validity period", () => {
+    const { validityValue: _value, validityUnit: _unit, ...rest } = basePromo;
+    expect(promoInputSchema.safeParse({ ...rest, noExpiry: true }).success).toBe(true);
+  });
+
+  it("rejects a no-expiry promo that also has a validity period", () => {
+    expect(issuePaths({ ...basePromo, noExpiry: true })).toContain("noExpiry");
+  });
 });

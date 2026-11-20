@@ -22,10 +22,12 @@ export interface CollectProviderOptions {
   fetchPage: FetchPage;
   logger: Logger;
   sourceUrl: string;
-  /** Size of the currently published set, used for the drop guard. */
+  /** Baseline for the drop guard (see RunCounts.previousPublishedCount). */
   previousPublishedCount: number;
   now?: () => Date;
   policy?: PublishPolicy;
+  /** See PublishOptions.acceptSmallerSet. */
+  acceptSmallerSet?: boolean;
   alerts?: AlertSink;
 }
 
@@ -47,7 +49,7 @@ function describeIssues(error: { issues: Array<{ path: PropertyKey[]; message: s
 }
 
 /** Diagnostics must stay useful but never contain credentials or tokens. */
-function safeDetail(message: string): string {
+export function safeDetail(message: string): string {
   return message.replace(/\s+/g, " ").slice(0, 500);
 }
 
@@ -112,6 +114,7 @@ export async function collectProvider(
         previousPublishedCount: options.previousPublishedCount,
       },
       options.policy ?? DEFAULT_PUBLISH_POLICY,
+      { acceptSmallerSet: options.acceptSmallerSet },
     );
 
     const completedAt = now();
@@ -126,6 +129,7 @@ export async function collectProvider(
       published: decision.publish,
       errorDetail: decision.publish ? undefined : decision.reason,
       rejections,
+      ...(decision.override ? { override: decision.override } : {}),
     };
 
     if (!decision.publish) {
