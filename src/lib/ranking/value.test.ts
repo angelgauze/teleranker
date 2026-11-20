@@ -66,6 +66,37 @@ describe("computeValueMetrics", () => {
     expect(metrics.reason).toMatch(/validity/i);
   });
 
+  it("scores no-expiry promos on GB per ₱100 without per-day figures", () => {
+    // 8 GB all-access for ₱99: (8 ÷ 99) × 100 = 8.0808
+    const metrics = computeValueMetrics(
+      promo({ validityValue: undefined, validityUnit: undefined, noExpiry: true }),
+    );
+    expect(metrics.scoreable).toBe(true);
+    expect(metrics.gbPerHundredPesos).toBe(8.0808);
+    expect(metrics.validityDays).toBeNull();
+    expect(metrics.dataPerDayGb).toBeNull();
+    expect(metrics.pricePerDayPhp).toBeNull();
+    expect(metrics.reason).toBeUndefined();
+  });
+
+  it("scores a no-expiry promo exactly like the same promo with a validity period", () => {
+    const fixed = computeValueMetrics(promo());
+    const forever = computeValueMetrics(
+      promo({ validityValue: undefined, validityUnit: undefined, noExpiry: true }),
+    );
+    expect(forever.gbPerHundredPesos).toBe(fixed.gbPerHundredPesos);
+  });
+
+  it("still does not score unlimited or zero-price no-expiry promos", () => {
+    const noValidity = { validityValue: undefined, validityUnit: undefined, noExpiry: true };
+    expect(
+      computeValueMetrics(
+        promo({ ...noValidity, dataKind: "UNLIMITED", dataGb: undefined, allAccessGb: undefined }),
+      ).scoreable,
+    ).toBe(false);
+    expect(computeValueMetrics(promo({ ...noValidity, priceCentavos: 0 })).scoreable).toBe(false);
+  });
+
   it("does not score promos with zero price instead of dividing by zero", () => {
     const metrics = computeValueMetrics(promo({ priceCentavos: 0 }));
     expect(metrics.scoreable).toBe(false);
@@ -115,6 +146,22 @@ describe("sortPromos", () => {
     expect(sortPromos(promos, "price").map((entry) => entry.promo.externalKey)).toEqual([
       "cheap",
       "expensive",
+    ]);
+  });
+
+  it("sorts by validity with no-expiry first and unknown validity last", () => {
+    const promos = [
+      promo({ externalKey: "unknown", name: "Unknown", validityValue: undefined, validityUnit: undefined }),
+      promo({ externalKey: "week", name: "Week", validityValue: 7, validityUnit: "DAY" }),
+      promo({ externalKey: "forever", name: "Forever", validityValue: undefined, validityUnit: undefined, noExpiry: true }),
+      promo({ externalKey: "month", name: "Month", validityValue: 1, validityUnit: "MONTH" }),
+    ];
+
+    expect(sortPromos(promos, "validity").map((entry) => entry.promo.externalKey)).toEqual([
+      "forever",
+      "month",
+      "week",
+      "unknown",
     ]);
   });
 });

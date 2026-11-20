@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 const srcDir = fileURLToPath(new URL("./src", import.meta.url));
 
@@ -12,5 +12,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // PostgreSQL integration tests run separately with `pnpm test:db`.
+    exclude: [...configDefaults.exclude, "src/**/*.db.test.ts"],
   },
 });

@@ -2,8 +2,14 @@ import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { createConsoleAlertSink } from "../src/lib/collect/alerts";
 import { createPageFetcher } from "../src/lib/collect/http";
-import { getAutomatedProviders, getProvider, type ProviderConfig } from "../src/lib/collect/registry";
-import { collectProvider } from "../src/lib/collect/run";
+import {
+  getAutomatedProviders,
+  getProvider,
+  providerSeed,
+  type ProviderConfig,
+} from "../src/lib/collect/registry";
+import { runProviderSafely } from "../src/lib/collect/persist";
+import { describeError } from "../src/lib/db/errors";
 import type { FetchPage, Logger, RunReport } from "../src/lib/collect/types";
 
 /**
@@ -12,9 +18,14 @@ import type { FetchPage, Logger, RunReport } from "../src/lib/collect/types";
  *   pnpm scrape --provider=dito --live                 # fetch, validate, report
  *   pnpm scrape --provider=globe --live --publish      # also publish to Postgres
  *   pnpm scrape --provider=dito --fixture=path.html    # parse a saved page
+ *   pnpm scrape --provider=globe --live --publish --accept-smaller-set
+ *                                                      # publish a run the drop guard held back
  *
  * Safety: nothing is fetched without --live, and --publish requires --live so a
- * stale fixture can never replace published data.
+ * stale fixture can never replace published data. --accept-smaller-set is for
+ * a person who has checked the provider's page and confirmed the catalogue
+ * really shrank; it needs --publish and a single --provider, and is recorded
+ * in the run log (docs/providers.md, "Maintenance").
  */
 
 const args = process.argv.slice(2);
@@ -56,6 +67,7 @@ function printReport(report: RunReport, reason: string | undefined, persisted: b
     `${report.providerId.padEnd(8)} ${status.padEnd(10)} collected=${report.recordsCollected} accepted=${report.recordsAccepted} rejected=${report.recordsRejected}`,
   );
   if (reason) console.log(`         reason: ${reason}`);
+  if (report.override) console.log(`         override: ${report.override}`);
   for (const rejection of report.rejections.slice(0, 5)) {
     console.log(`         rejected ${rejection.name ?? "(unnamed)"}: ${rejection.reason}`);
   }
@@ -69,6 +81,7 @@ async function main(): Promise<number> {
   const fixturePath = valueOf("fixture");
   const live = hasFlag("live");
   const publish = hasFlag("publish");
+  const acceptSmallerSet = hasFlag("accept-smaller-set");
 
   let targets: ProviderConfig[];
   if (providerArg === "all") {
@@ -107,6 +120,11 @@ async function main(): Promise<number> {
     return 2;
   }
 
+  if (acceptSmallerSet && (!publish || providerArg === "all")) {
+    logger.error("--accept-smaller-set requires --publish and a single --provider");
+    return 2;
+  }
+
   if (publish && !process.env.DATABASE_URL) {
     logger.error("--publish requires DATABASE_URL; see .env.example");
     return 2;
@@ -127,6 +145,7 @@ async function main(): Promise<number> {
     repository = await createRepository();
   }
 
+  const alerts = createConsoleAlertSink(logger);
   let exitCode = 0;
   try {
     for (const target of targets) {
@@ -136,44 +155,22 @@ async function main(): Promise<number> {
         continue;
       }
 
-      const previousPublishedCount = repository ? await repository.countPublished(target.id) : 0;
-      const result = await collectProvider({
-        providerId: target.id,
-        collector: target.collector,
+      // Never throws: a database error becomes a FAILED run with an alert, and
+      // the loop moves on to the next provider.
+      const { report, reason } = await runProviderSafely({
+        provider: {
+          ...providerSeed(target),
+          collector: target.collector,
+          sourceUrl: target.sourceUrls[0],
+        },
+        repository,
+        acceptSmallerSet,
         fetchPage,
+        alerts,
         logger,
-        sourceUrl: target.sourceUrls[0],
-        previousPublishedCount,
-        alerts: createConsoleAlertSink(logger),
       });
 
-      let report = result.report;
-
-      if (repository) {
-        await repository.ensureProvider({
-          id: target.id,
-          name: target.name,
-          websiteUrl: target.websiteUrl,
-        });
-
-        if (result.decision.publish) {
-          try {
-            const summary = await repository.publishPromos(target.id, result.promos);
-            logger.info("Published promo set", { providerId: target.id, ...summary });
-          } catch (error) {
-            report = {
-              ...report,
-              status: "FAILED",
-              published: false,
-              errorDetail: `publish failed: ${error instanceof Error ? error.message : "unknown error"}`,
-            };
-          }
-        }
-
-        await repository.recordRun(report);
-      }
-
-      printReport(report, result.decision.publish ? undefined : result.decision.reason, Boolean(repository));
+      printReport(report, reason, Boolean(repository));
 
       if (report.status === "FAILED" || !report.published) {
         exitCode = 1;
@@ -200,8 +197,10 @@ main()
     process.exitCode = code;
   })
   .catch((error: unknown) => {
-    logger.error("Unexpected failure", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    // Database problems get a short message; anything else is a bug, so keep
+    // the full error with its stack trace.
+    const described = describeError(error);
+    if (described.isDatabase) logger.error("Unexpected failure", { error: described.message });
+    else console.error("[error] Unexpected failure:", error);
     process.exitCode = 1;
   });

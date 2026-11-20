@@ -3,40 +3,30 @@ import { connection } from "next/server";
 
 // The listing depends on live database state, so it cannot be prerendered.
 export const instant = false;
+import { SourceLink } from "../_components/source-link";
 import { loadPromosByIds, type PublishedPromo } from "@/lib/db/promos";
 import {
   COMPATIBILITY_LABELS,
+  COMPATIBILITY_NOTES,
+  formatCalls,
+  formatDataAllocation,
   formatDate,
   formatGb,
+  formatPerDay,
   formatPeso,
+  formatStatus,
+  formatTexts,
   formatValidity,
+  STATUS_LABELS,
 } from "@/lib/ui/format";
-
-function callsLabel(promo: PublishedPromo["promo"]): string {
-  if (promo.callsUnlimited) return "Unlimited";
-  if (promo.callsIncluded !== undefined) return `${promo.callsIncluded} included`;
-  return "Unknown";
-}
-
-function textsLabel(promo: PublishedPromo["promo"]): string {
-  if (promo.textsUnlimited) return "Unlimited";
-  if (promo.textsIncluded !== undefined) return `${promo.textsIncluded} included`;
-  return "Unknown";
-}
 
 const ROWS: Array<{ label: string; value: (entry: PublishedPromo) => string }> = [
   { label: "Provider", value: ({ providerName }) => providerName },
+  { label: "Status", value: ({ promo }) => formatStatus(promo.status) },
   { label: "Price", value: ({ promo }) => formatPeso(promo.priceCentavos) },
   {
     label: "Total data",
-    value: ({ promo, metrics }) =>
-      promo.dataKind === "UNLIMITED"
-        ? "Unlimited"
-        : promo.dataKind === "NONE"
-          ? "No data"
-          : promo.dataKind === "UNKNOWN"
-            ? "Unknown"
-            : formatGb(metrics.totalGb),
+    value: ({ promo, metrics }) => formatDataAllocation(promo.dataKind, metrics.totalGb),
   },
   {
     label: "All-access data",
@@ -44,17 +34,15 @@ const ROWS: Array<{ label: string; value: (entry: PublishedPromo) => string }> =
   },
   {
     label: "Validity",
-    value: ({ promo }) => formatValidity(promo.validityValue, promo.validityUnit),
+    value: ({ promo }) => formatValidity(promo.validityValue, promo.validityUnit, promo.noExpiry),
   },
   {
     label: "Data per day",
-    value: ({ metrics }) =>
-      metrics.dataPerDayGb === null ? "Unknown" : `${metrics.dataPerDayGb.toFixed(2)} GB/day`,
+    value: ({ promo, metrics }) => formatPerDay(metrics.dataPerDayGb, "gb", promo.noExpiry),
   },
   {
     label: "Price per day",
-    value: ({ metrics }) =>
-      metrics.pricePerDayPhp === null ? "Unknown" : `₱${metrics.pricePerDayPhp.toFixed(2)}/day`,
+    value: ({ promo, metrics }) => formatPerDay(metrics.pricePerDayPhp, "php", promo.noExpiry),
   },
   {
     label: "Value (GB per ₱100)",
@@ -65,15 +53,15 @@ const ROWS: Array<{ label: string; value: (entry: PublishedPromo) => string }> =
   },
   {
     label: "4G/5G compatibility",
-    value: ({ promo }) => COMPATIBILITY_LABELS[promo.compatibility],
+    value: ({ promo }) => {
+      const note = COMPATIBILITY_NOTES[promo.compatibility];
+      const label = COMPATIBILITY_LABELS[promo.compatibility];
+      return note ? `${label} (${note.charAt(0).toLowerCase()}${note.slice(1)})` : label;
+    },
   },
-  { label: "Calls", value: ({ promo }) => callsLabel(promo) },
-  { label: "Texts", value: ({ promo }) => textsLabel(promo) },
+  { label: "Calls", value: ({ promo }) => formatCalls(promo) },
+  { label: "Texts", value: ({ promo }) => formatTexts(promo) },
   { label: "Last verified", value: ({ promo }) => formatDate(promo.lastVerifiedAt) },
-  {
-    label: "Official source",
-    value: ({ promo }) => (promo.sourceUrl ? "Available" : "No official source link"),
-  },
 ];
 
 export default async function ComparePage({
@@ -118,6 +106,7 @@ export default async function ComparePage({
   }
 
   const { promos, databaseUnavailable } = await loadPromosByIds(ids);
+  const inactive = promos.filter(({ promo }) => promo.status !== "ACTIVE");
 
   if (databaseUnavailable) {
     return (
@@ -139,12 +128,24 @@ export default async function ComparePage({
       </p>
       <h1 className="mt-4 text-2xl font-semibold tracking-tight">Compare promos</h1>
 
-      {promos.length < ids.length ? (
+      {promos.length > 0 && promos.length < ids.length ? (
         <p
           role="status"
           className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
         >
-          One of the selected promos is no longer available and was left out.
+          One of the selected promos could not be found and was left out.
+        </p>
+      ) : null}
+
+      {inactive.length > 0 ? (
+        <p
+          role="status"
+          className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          {inactive
+            .map(({ promo }) => `${promo.name}: ${STATUS_LABELS[promo.status].toLowerCase()}`)
+            .join("; ")}
+. Details may no longer match what the provider currently sells.
         </p>
       ) : null}
 
@@ -181,24 +182,15 @@ export default async function ComparePage({
               ))}
               <tr>
                 <th scope="row" className="px-2 py-2 text-left font-medium">Source</th>
-                {promos.map(({ id, promo }) =>
-                  promo.sourceUrl ? (
-                    <td key={id} className="px-2 py-2">
-                      <a
-                        href={promo.sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline underline-offset-2"
-                      >
-                        Official provider page
-                      </a>
-                    </td>
-                  ) : (
-                    <td key={id} className="px-2 py-2">
-                      No official source link
-                    </td>
-                  ),
-                )}
+                {promos.map(({ id, promo, providerName, providerPromoPageUrl }) => (
+                  <td key={id} className="px-2 py-2">
+                    <SourceLink
+                      sourceUrl={promo.sourceUrl}
+                      providerName={providerName}
+                      providerPromoPageUrl={providerPromoPageUrl}
+                    />
+                  </td>
+                ))}
               </tr>
             </tbody>
           </table>

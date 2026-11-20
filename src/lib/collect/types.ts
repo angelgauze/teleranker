@@ -70,4 +70,9 @@ export interface RunReport {
   published: boolean;
   errorDetail?: string;
   rejections: Array<{ name?: string; reason: string }>;
+  /**
+   * Set when an administrator published a run that the drop guard would have
+   * held back (`--accept-smaller-set`): the guard's reason, kept in the run log.
+   */
+  override?: string;
 }

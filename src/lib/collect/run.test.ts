@@ -149,18 +149,18 @@ describe("collectProvider", () => {
 
     const healthy = await runWith(pageOf(fixture));
     expect(healthy.decision.publish).toBe(true);
-    await repository.publishPromos("dito", healthy.promos);
-    expect(await repository.countPublished("dito")).toBe(36);
+    await repository.publishPromos("dito", healthy.promos, "COLLECTED");
+    expect(await repository.countPublished("dito", "COLLECTED")).toBe(36);
 
     const broken = await runWith(pageOf("<html><body>maintenance</body></html>"), {
-      previousPublishedCount: await repository.countPublished("dito"),
+      previousPublishedCount: await repository.countPublished("dito", "COLLECTED"),
     });
 
     expect(broken.decision.publish).toBe(false);
     if (broken.decision.publish) {
-      await repository.publishPromos("dito", broken.promos);
+      await repository.publishPromos("dito", broken.promos, "COLLECTED");
     }
-    expect(await repository.countPublished("dito")).toBe(36);
+    expect(await repository.countPublished("dito", "COLLECTED")).toBe(36);
     expect(repository.runs).toHaveLength(0);
   });
 });
@@ -172,6 +172,16 @@ describe("registry compliance records", () => {
     expect(smart.collection).toBe("manual-only");
     expect(smart.collector).toBeUndefined();
     expect(smart.compliance.decision).toMatch(/access control/);
+  });
+
+  it("registers TNT and GOMO as manual-only without collectors", async () => {
+    const { getProvider } = await import("./registry");
+    for (const id of ["tnt", "gomo"]) {
+      const provider = getProvider(id)!;
+      expect(provider.collection).toBe("manual-only");
+      expect(provider.collector).toBeUndefined();
+      expect(provider.compliance.termsReviewed).toBe(false);
+    }
   });
 
   it("only exposes collectors for automated providers", async () => {
