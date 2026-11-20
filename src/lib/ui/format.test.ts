@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROMO_STATUSES } from "../schema/promo";
-import { formatCalls, formatDataAllocation, formatPerDay, formatStatus, sourceLinkFor, formatTexts, formatValidity, STATUS_LABELS } from "./format";
+import { COMPATIBILITY_NOTES, formatCalls, formatDataAllocation, formatPerDay, formatStatus, sourceLinkFor, formatTexts, formatValidity, STATUS_LABELS } from "./format";
 
 describe("formatStatus", () => {
   it("labels every status", () => {
@@ -79,5 +79,17 @@ describe("formatPerDay", () => {
     expect(formatPerDay(10, "php")).toBe("₱10.00/day");
     expect(formatPerDay(null, "gb", true)).toBe("Not applicable (no expiry)");
     expect(formatPerDay(null, "php")).toBe("Unknown");
+  });
+});
+
+describe("COMPATIBILITY_NOTES", () => {
+  it("explains that 5G-only promos need a 5G phone and 5G signal", () => {
+    expect(COMPATIBILITY_NOTES.FIVE_G).toMatch(/5G phone and 5G signal/);
+  });
+
+  it("adds no note to promos that work on 4G or are not verified", () => {
+    expect(COMPATIBILITY_NOTES.FOUR_G_AND_FIVE_G).toBeUndefined();
+    expect(COMPATIBILITY_NOTES.FOUR_G).toBeUndefined();
+    expect(COMPATIBILITY_NOTES.UNKNOWN).toBeUndefined();
   });
 });

@@ -38,6 +38,11 @@ export const COMPATIBILITY_LABELS: Record<PromoCompatibility, string> = {
   UNKNOWN: "Not verified",
 };
 
+/** Extra guidance shown next to a compatibility label, where one is needed. */
+export const COMPATIBILITY_NOTES: Partial<Record<PromoCompatibility, string>> = {
+  FIVE_G: "Needs a 5G phone and 5G signal where you use it",
+};
+
 export const STATUS_LABELS: Record<PromoStatus, string> = {
   ACTIVE: "Active",
   OUTDATED: "Outdated",

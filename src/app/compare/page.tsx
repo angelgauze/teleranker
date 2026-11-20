@@ -7,6 +7,7 @@ import { SourceLink } from "../_components/source-link";
 import { loadPromosByIds, type PublishedPromo } from "@/lib/db/promos";
 import {
   COMPATIBILITY_LABELS,
+  COMPATIBILITY_NOTES,
   formatCalls,
   formatDataAllocation,
   formatDate,
@@ -52,7 +53,11 @@ const ROWS: Array<{ label: string; value: (entry: PublishedPromo) => string }> =
   },
   {
     label: "4G/5G compatibility",
-    value: ({ promo }) => COMPATIBILITY_LABELS[promo.compatibility],
+    value: ({ promo }) => {
+      const note = COMPATIBILITY_NOTES[promo.compatibility];
+      const label = COMPATIBILITY_LABELS[promo.compatibility];
+      return note ? `${label} (${note.charAt(0).toLowerCase()}${note.slice(1)})` : label;
+    },
   },
   { label: "Calls", value: ({ promo }) => formatCalls(promo) },
   { label: "Texts", value: ({ promo }) => formatTexts(promo) },

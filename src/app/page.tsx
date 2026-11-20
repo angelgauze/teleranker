@@ -18,6 +18,7 @@ import type { SortKey } from "@/lib/ranking/value";
 import type { PromoCompatibility } from "@/lib/schema/promo";
 import {
   COMPATIBILITY_LABELS,
+  COMPATIBILITY_NOTES,
   formatCalls,
   formatDataAllocation,
   formatDate,
@@ -153,6 +154,11 @@ function PromoRow({ entry }: { entry: PublishedPromo }) {
       </Cell>
       <Cell label="4G/5G" className="md:whitespace-nowrap">
         {COMPATIBILITY_LABELS[promo.compatibility]}
+        {COMPATIBILITY_NOTES[promo.compatibility] ? (
+          <span className={`block max-w-40 whitespace-normal text-xs ${MUTED}`}>
+            {COMPATIBILITY_NOTES[promo.compatibility]}
+          </span>
+        ) : null}
       </Cell>
       <Cell label="Calls / texts">
         <span className="block">Calls: {formatCalls(promo)}</span>
@@ -447,6 +453,16 @@ export default async function HomePage({
           unknown data or validity are listed but not scored. Coverage and speed are not part
           of the score because no reliable data source has been agreed yet, so the top promo is not
           the &ldquo;best&rdquo; overall, only the most data per peso.
+        </p>
+        <h2 className="mt-6 text-base font-semibold text-zinc-900 dark:text-zinc-100">
+          About 4G and 5G
+        </h2>
+        <p className="mt-2 max-w-3xl">
+          A &ldquo;5G only&rdquo; promo needs a 5G phone and 5G signal where you use it. 5G signal
+          can be patchy: coverage maps built from other users&rsquo; tests can show 5G in an area
+          while most connections there are still on 4G. Check the coverage where you use your phone
+          before choosing a 5G-only promo. Promos marked &ldquo;4G and 5G&rdquo; work on any 4G
+          (LTE) phone.
         </p>
       </section>
     </main>
