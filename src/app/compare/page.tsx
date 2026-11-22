@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
+import { cache } from "react";
 
 // The listing depends on live database state, so it cannot be prerendered.
 export const instant = false;
@@ -69,78 +71,116 @@ const ROWS: Array<{ label: string; value: (entry: PublishedPromo) => string }> =
   },
 ];
 
-export default async function ComparePage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+function Notice({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
+      <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+      <div className="mt-3 space-y-3 text-zinc-700 dark:text-zinc-300">{children}</div>
+    </main>
+  );
+}
+
+const LISTING_LINK = (
+  <Link href="/" className="underline underline-offset-2">
+    promo listing
+  </Link>
+);
+
+/** One promo's source cell: its own link, the provider's promo page, or "No source link". */
+function Source({ entry }: { entry: PublishedPromo }) {
+  return (
+    <SourceLink
+      sourceUrl={entry.promo.sourceUrl}
+      providerName={entry.providerName}
+      providerPromoPageUrl={entry.providerPromoPageUrl}
+    />
+  );
+}
+
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+/** The picked ids, without blanks or repeats: the same promo twice is one pick, not a comparison. */
+function pickedIds(params: Record<string, string | string[] | undefined>): string[] {
+  const raw = Array.isArray(params.id) ? params.id : params.id ? [params.id] : [];
+  return [...new Set(raw.filter(Boolean))];
+}
+
+/** One database read per request, shared by the tab title and the page. */
+const loadPicked = cache((key: string) => loadPromosByIds(key.split(",")));
+
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const ids = pickedIds(await searchParams);
+  if (ids.length !== 2) return { title: "Compare promos" };
+  const { promos } = await loadPicked(ids.join(","));
+  return {
+    title: promos.length === 2 ? `${promos[0].promo.name} vs ${promos[1].promo.name}` : "Compare promos",
+  };
+}
+
+export default async function ComparePage({ searchParams }: Props) {
   await connection();
 
-  const params = await searchParams;
-  const ids = (Array.isArray(params.id) ? params.id : params.id ? [params.id] : []).filter(Boolean);
+  const ids = pickedIds(await searchParams);
 
   if (ids.length === 0) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
-        <h1 className="text-3xl font-semibold tracking-tight">Compare promos</h1>
-        <p className="mt-3 text-zinc-700 dark:text-zinc-300">
-          Select one or two promos on the{" "}
-          <Link href="/" className="underline underline-offset-2">
-            promo listing
-          </Link>{" "}
-          and choose “Compare selected”.
-        </p>
-      </main>
+      <Notice title="Compare promos">
+        <p>Pick two promos on the {LISTING_LINK} and choose &ldquo;Compare&rdquo;.</p>
+      </Notice>
+    );
+  }
+
+  if (ids.length === 1) {
+    return (
+      <Notice title="Pick one more promo">
+        <p>Comparing needs two promos. Go back to the {LISTING_LINK} and pick a second one.</p>
+      </Notice>
     );
   }
 
   if (ids.length > 2) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
-        <h1 className="text-3xl font-semibold tracking-tight">Select at most two promos</h1>
-        <p className="mt-3 text-zinc-700 dark:text-zinc-300">
-          You selected {ids.length}. Please return to the listing and select no more than two.
+      <Notice title="Pick at most two promos">
+        <p>
+          You picked {ids.length}. Go back to the {LISTING_LINK} and keep two.
         </p>
-        <p className="mt-4">
-          <Link href="/" className="underline underline-offset-2">
-            Back to the listing
-          </Link>
-        </p>
-      </main>
+      </Notice>
     );
   }
 
-  const { promos, databaseUnavailable } = await loadPromosByIds(ids);
-  const inactive = promos.filter(({ promo }) => promo.status !== "ACTIVE");
+  const { promos, databaseUnavailable } = await loadPicked(ids.join(","));
 
   if (databaseUnavailable) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
-        <h1 className="text-3xl font-semibold tracking-tight">Comparison unavailable</h1>
-        <p className="mt-3 text-zinc-700 dark:text-zinc-300">
-          The promo database cannot be reached. Try again once the database is configured.
-        </p>
-      </main>
+      <Notice title="Comparison unavailable">
+        <p>The promo database cannot be reached. Try again once the database is configured.</p>
+      </Notice>
     );
   }
+
+  if (promos.length < 2) {
+    return (
+      <Notice title="Comparison unavailable">
+        <p>
+          {promos.length === 0
+            ? "Neither of the picked promos could be found."
+            : `One of the picked promos could not be found, so only ${promos[0].promo.name} is left.`}{" "}
+          Pick again on the {LISTING_LINK}.
+        </p>
+      </Notice>
+    );
+  }
+
+  const inactive = promos.filter(({ promo }) => promo.status !== "ACTIVE");
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
       <p className="text-sm">
         <Link href="/" className="underline underline-offset-2">
-          ← Back to the listing
+          <span aria-hidden="true">←</span> Back to the listing
         </Link>
       </p>
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">Compare promos</h1>
-
-      {promos.length > 0 && promos.length < ids.length ? (
-        <p
-          role="status"
-          className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
-        >
-          One of the selected promos could not be found and was left out.
-        </p>
-      ) : null}
 
       {inactive.length > 0 ? (
         <p
@@ -150,61 +190,91 @@ export default async function ComparePage({
           {inactive
             .map(({ promo }) => `${promo.name}: ${STATUS_LABELS[promo.status].toLowerCase()}`)
             .join("; ")}
-. Details may no longer match what the provider currently sells.
+          . Details may no longer match what the provider currently sells.
         </p>
       ) : null}
 
-      {promos.length === 0 ? (
-        <p className="mt-4 text-zinc-700 dark:text-zinc-300">
-          None of the selected promos could be found.
-        </p>
-      ) : (
-        <div className="mt-6 overflow-x-auto">
-          <table className="w-full min-w-[36rem] border-collapse text-sm">
-            <caption className="sr-only">Field-by-field comparison of the selected promos</caption>
-            <thead>
-              <tr className="border-b border-zinc-300 dark:border-zinc-700">
-                <th scope="col" className="w-40 px-2 py-2 text-left">Field</th>
-                {promos.map(({ id, promo }) => (
-                  <th key={id} scope="col" className="px-2 py-2 text-left">
-                    {promo.name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ROWS.map((row) => (
-                <tr key={row.label} className="border-b border-zinc-200 dark:border-zinc-800">
-                  <th scope="row" className="px-2 py-2 text-left font-medium">
-                    {row.label}
-                  </th>
-                  {promos.map((entry) => (
-                    <td key={entry.id} className="px-2 py-2">
-                      {row.value(entry)}
-                    </td>
-                  ))}
-                </tr>
+      {/* Phones: one field at a time, the two values side by side, names pinned on top. */}
+      <div className="mt-6 md:hidden">
+        <div className="sticky top-0 z-10 grid grid-cols-2 gap-3 border-b border-zinc-300 bg-white py-2 text-sm font-semibold dark:border-zinc-700 dark:bg-zinc-950">
+          {promos.map(({ id, promo }) => (
+            <p key={id} className="min-w-0 break-words">
+              {promo.name}
+            </p>
+          ))}
+        </div>
+        {ROWS.map((row) => (
+          <section key={row.label} className="border-b border-zinc-200 py-2 dark:border-zinc-800">
+            <h2 className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{row.label}</h2>
+            <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
+              {promos.map((entry) => (
+                <p key={entry.id} className="min-w-0 break-words">
+                  <span className="sr-only">{entry.promo.name}: </span>
+                  {row.value(entry)}
+                </p>
               ))}
-              <tr>
-                <th scope="row" className="px-2 py-2 text-left font-medium">Source</th>
-                {promos.map(({ id, promo, providerName, providerPromoPageUrl }) => (
-                  <td key={id} className="px-2 py-2">
-                    <SourceLink
-                      sourceUrl={promo.sourceUrl}
-                      providerName={providerName}
-                      providerPromoPageUrl={providerPromoPageUrl}
-                    />
+            </div>
+          </section>
+        ))}
+        <section className="py-2">
+          <h2 className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Source</h2>
+          <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
+            {promos.map((entry) => (
+              <p key={entry.id} className="min-w-0 break-words">
+                <span className="sr-only">{entry.promo.name}: </span>
+                <Source entry={entry} />
+              </p>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {/* Tablets and desktops: the field-by-field table. */}
+      <div className="mt-6 hidden md:block">
+        <table className="w-full border-collapse text-sm">
+          <caption className="sr-only">Field-by-field comparison of the selected promos</caption>
+          <thead>
+            <tr className="border-b border-zinc-300 dark:border-zinc-700">
+              <th scope="col" className="w-48 px-2 py-2 text-left">
+                Field
+              </th>
+              {promos.map(({ id, promo }) => (
+                <th key={id} scope="col" className="px-2 py-2 text-left">
+                  {promo.name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ROWS.map((row) => (
+              <tr key={row.label} className="border-b border-zinc-200 dark:border-zinc-800">
+                <th scope="row" className="px-2 py-2 text-left font-medium">
+                  {row.label}
+                </th>
+                {promos.map((entry) => (
+                  <td key={entry.id} className="px-2 py-2">
+                    {row.value(entry)}
                   </td>
                 ))}
               </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
+            ))}
+            <tr>
+              <th scope="row" className="px-2 py-2 text-left font-medium">
+                Source
+              </th>
+              {promos.map((entry) => (
+                <td key={entry.id} className="px-2 py-2">
+                  <Source entry={entry} />
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
-        “Unknown” means the value was not published or could not be verified. It is never treated
-        as zero.
+        &ldquo;Unknown&rdquo; means the value was not published or could not be verified. It is
+        never treated as zero.
       </p>
     </main>
   );
