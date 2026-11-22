@@ -10,6 +10,7 @@ import {
 } from "../src/lib/collect/registry";
 import { runProviderSafely } from "../src/lib/collect/persist";
 import { describeError } from "../src/lib/db/errors";
+import { describeOverrideReport } from "../src/lib/overrides/apply";
 import type { FetchPage, Logger, RunReport } from "../src/lib/collect/types";
 
 /**
@@ -68,6 +69,9 @@ function printReport(report: RunReport, reason: string | undefined, persisted: b
   );
   if (reason) console.log(`         reason: ${reason}`);
   if (report.override) console.log(`         override: ${report.override}`);
+  if (report.promoOverrides) {
+    console.log(`         checked values: ${describeOverrideReport(report.promoOverrides)}`);
+  }
   for (const rejection of report.rejections.slice(0, 5)) {
     console.log(`         rejected ${rejection.name ?? "(unnamed)"}: ${rejection.reason}`);
   }

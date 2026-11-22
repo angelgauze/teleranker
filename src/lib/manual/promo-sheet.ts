@@ -88,20 +88,25 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 export const EARLIEST_VERIFIED_DATE = "2020-01-01";
 
 /** Calendar date (YYYY-MM-DD) of an instant in Manila (UTC+8). */
-const manilaDate = (date: Date) => new Date(date.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
+export const manilaDate = (date: Date) => new Date(date.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
 
 /**
  * Checks a verification date is plausible: not before 2020-01-01 and not
  * after the day of the import (Manila time). A future date would keep a promo
  * from ever showing as outdated.
  */
-export function checkVerifiedDate(raw: string, date: Date, now: Date): string | undefined {
+export function checkVerifiedDate(
+  raw: string,
+  date: Date,
+  now: Date,
+  column = "last_verified_at",
+): string | undefined {
   const day = manilaDate(date);
   const shown = day === raw ? raw : `${raw} (${day})`;
   if (day < EARLIEST_VERIFIED_DATE) {
-    return `last_verified_at ${shown} is before ${EARLIEST_VERIFIED_DATE}`;
+    return `${column} ${shown} is before ${EARLIEST_VERIFIED_DATE}`;
   }
-  if (day > manilaDate(now)) return `last_verified_at ${shown} is in the future`;
+  if (day > manilaDate(now)) return `${column} ${shown} is in the future`;
   return undefined;
 }
 
@@ -164,7 +169,8 @@ function mapValidity(values: Record<string, string>, errors: string[]): Partial<
   return { validityValue: days, validityUnit: "DAY" };
 }
 
-function mapCompatibility(value: string, errors: string[]): PromoInput["compatibility"] {
+/** Maps the sheet's network_support wording; blank means not verified (UNKNOWN). */
+export function mapCompatibility(value: string, errors: string[]): PromoInput["compatibility"] {
   switch (value.toUpperCase()) {
     case "5G":
       return "FIVE_G";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCsv, parseCsvRecords } from "./csv";
+import { parseCsv, parseCsvRecords, toCsv } from "./csv";
 
 describe("parseCsv", () => {
   it("splits plain fields and CRLF lines", () => {
@@ -57,5 +57,18 @@ describe("parseCsvRecords", () => {
   it("reports line numbers after multi-line fields", () => {
     const { records } = parseCsvRecords('id,note\n1,"two\nlines"\n2,x\n');
     expect(records.map((record) => record.line)).toEqual([2, 4]);
+  });
+});
+
+describe("toCsv", () => {
+  it("quotes only fields that need it and ends lines with CRLF", () => {
+    expect(toCsv([["id", "note"], ["1", 'say "hi", twice'], ["2", "two\nlines"], ["3", ""]])).toBe(
+      'id,note\r\n1,"say ""hi"", twice"\r\n2,"two\nlines"\r\n3,\r\n',
+    );
+  });
+
+  it("round-trips through the parser", () => {
+    const rows = [["a", "b"], ["x,y", '"q"'], ["", "line\r\nbreak"]];
+    expect(parseCsv(toCsv(rows))).toEqual(rows);
   });
 });

@@ -468,3 +468,86 @@ describe("failed publish reporting", () => {
     expect(alerts.alerts.map((alert) => alert.severity)).toEqual(["critical"]);
   });
 });
+
+describe("persistRun with promo overrides", () => {
+  const checked = (externalKey: string, compatibility: "FIVE_G" | "FOUR_G_AND_FIVE_G") => ({
+    providerId: "test",
+    externalKey,
+    compatibility,
+    verifiedAt: at,
+    sourceUrl: "https://example.test/promos",
+  });
+
+  it("publishes checked values instead of the collector's and logs the match", async () => {
+    const repository = new MemoryPromoRepository();
+    await repository.replaceOverrides([
+      { providerId: "test", overrides: [checked("fixture-promo", "FOUR_G_AND_FIVE_G"), checked("gone", "FIVE_G")] },
+    ]);
+    const alerts = createMemoryAlertSink();
+
+    const report = await persistRun({ repository, provider, result: resultOf(true), alerts, logger: silentLogger });
+
+    expect(repository.get("test", "fixture-promo")?.promo.compatibility).toBe("FOUR_G_AND_FIVE_G");
+    expect(report.promoOverrides).toEqual({ matched: 1, unmatched: ["gone"], conflicts: [] });
+    expect(repository.runs.at(-1)?.promoOverrides).toEqual(report.promoOverrides);
+    // Unmatched overrides are logged, not alerted.
+    expect(alerts.alerts).toHaveLength(0);
+    // The collector's own value is remembered for when the override is removed.
+    expect(repository.overrides.get("test")?.get("fixture-promo")?.collectedCompatibility).toBe("UNKNOWN");
+  });
+
+  it("keeps the checked value and alerts when the collector disagrees", async () => {
+    const repository = new MemoryPromoRepository();
+    await repository.replaceOverrides([
+      { providerId: "test", overrides: [checked("fixture-promo", "FOUR_G_AND_FIVE_G")] },
+    ]);
+    const alerts = createMemoryAlertSink();
+
+    const report = await persistRun({
+      repository,
+      provider,
+      result: resultOf(true, [{ ...promo, compatibility: "FIVE_G" }]),
+      alerts,
+      logger: silentLogger,
+    });
+
+    expect(repository.get("test", "fixture-promo")?.promo.compatibility).toBe("FOUR_G_AND_FIVE_G");
+    expect(report.promoOverrides?.conflicts).toEqual([
+      { externalKey: "fixture-promo", collected: "FIVE_G", override: "FOUR_G_AND_FIVE_G" },
+    ]);
+    expect(alerts.alerts).toEqual([
+      expect.objectContaining({
+        severity: "warning",
+        title: "Collected values disagree with checked overrides for test",
+      }),
+    ]);
+  });
+
+  it("leaves the run report unchanged when the provider has no overrides", async () => {
+    const repository = new MemoryPromoRepository();
+    const report = await persistRun({
+      repository,
+      provider,
+      result: resultOf(true),
+      alerts: createMemoryAlertSink(),
+      logger: silentLogger,
+    });
+    expect(report.promoOverrides).toBeUndefined();
+  });
+
+  it("does not apply overrides to a run that is held back", async () => {
+    const repository = new MemoryPromoRepository();
+    await repository.replaceOverrides([
+      { providerId: "test", overrides: [checked("fixture-promo", "FIVE_G")] },
+    ]);
+    const report = await persistRun({
+      repository,
+      provider,
+      result: resultOf(false),
+      alerts: createMemoryAlertSink(),
+      logger: silentLogger,
+    });
+    expect(report.promoOverrides).toBeUndefined();
+    expect(repository.get("test", "fixture-promo")).toBeUndefined();
+  });
+});

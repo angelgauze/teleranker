@@ -1,4 +1,5 @@
-import type { PromoInput, PromoOrigin } from "../schema/promo";
+import type { PromoOverride } from "../schema/override";
+import type { PromoCompatibility, PromoInput, PromoOrigin } from "../schema/promo";
 import type { RunReport } from "../collect/types";
 
 /**
@@ -30,6 +31,40 @@ export interface PublishSet {
 export interface PublishSummary {
   published: number;
   markedUnavailable: number;
+}
+
+/** One provider's overrides, replacing all of that provider's stored overrides. */
+export interface OverrideSet {
+  providerId: string;
+  /** May be empty: every override for the provider is then removed. */
+  overrides: PromoOverride[];
+}
+
+export interface OverrideImportSummary {
+  providerId: string;
+  /** Overrides stored for the provider after the import. */
+  saved: number;
+  /** Published promos whose compatibility now comes from an override. */
+  applied: number;
+  /** Stored overrides with no published promo (renamed or removed by the provider). */
+  unmatched: string[];
+  /** Published promos returned to the collector's own value because their override was removed. */
+  restored: number;
+}
+
+/** A published, collected promo as the override template lists it. */
+export interface OverrideCandidate {
+  externalKey: string;
+  name: string;
+  priceCentavos: number;
+  dataKind: "TOTAL" | "UNLIMITED" | "NONE" | "UNKNOWN";
+  dataGb?: number | null;
+  validityValue?: number | null;
+  validityUnit?: "DAY" | "WEEK" | "MONTH" | null;
+  noExpiry?: boolean;
+  /** What the site shows now (an override's value when one applies). */
+  compatibility: PromoCompatibility;
+  sourceUrl?: string | null;
 }
 
 export interface PromoRepository {
@@ -79,10 +114,33 @@ export interface PromoRepository {
    * and its run log are both saved, or neither is. A run log can therefore
    * never disagree with what was published.
    */
-  publishRun(report: RunReport, promos: PromoInput[]): Promise<PublishSummary>;
+  publishRun(
+    report: RunReport,
+    promos: PromoInput[],
+    /**
+     * The collector's own compatibility for promos that had an override
+     * applied, by key. Stored on the overrides (same transaction) so removing
+     * an override can restore the collector's value.
+     */
+    collectedCompatibility?: ReadonlyMap<string, PromoCompatibility>,
+  ): Promise<PublishSummary>;
 
   /** Records a run that did not publish. */
   recordRun(report: RunReport): Promise<void>;
+
+  /** The provider's stored overrides. */
+  listOverrides(providerId: string): Promise<PromoOverride[]>;
+
+  /** The provider's published (ACTIVE or OUTDATED) collected promos, for the override template. */
+  listOverrideCandidates(providerId: string): Promise<OverrideCandidate[]>;
+
+  /**
+   * Replaces each provider's stored overrides and updates its published
+   * collected promos to match, all in one transaction: a promo with an
+   * override takes the override's value, and a promo whose override was
+   * removed returns to the collector's own value.
+   */
+  replaceOverrides(sets: OverrideSet[]): Promise<OverrideImportSummary[]>;
 }
 
 export function isPromoInput(value: unknown): value is PromoInput {

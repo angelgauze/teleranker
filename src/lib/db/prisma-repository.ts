@@ -1,7 +1,11 @@
 import { Prisma, type PrismaClient } from "../../generated/prisma/client";
-import type { PromoInput, PromoOrigin } from "../schema/promo";
+import type { PromoOverride } from "../schema/override";
+import type { PromoCompatibility, PromoInput, PromoOrigin } from "../schema/promo";
 import type { RunReport } from "../collect/types";
 import type {
+  OverrideCandidate,
+  OverrideImportSummary,
+  OverrideSet,
   PromoRepository,
   ProviderSeed,
   PublishSet,
@@ -138,11 +142,21 @@ export class PrismaPromoRepository implements PromoRepository {
     );
   }
 
-  async publishRun(report: RunReport, promos: PromoInput[]): Promise<PublishSummary> {
+  async publishRun(
+    report: RunReport,
+    promos: PromoInput[],
+    collectedCompatibility?: ReadonlyMap<string, PromoCompatibility>,
+  ): Promise<PublishSummary> {
     keysOf(promos); // fail before opening a transaction
     return this.prisma.$transaction(
       async (tx) => {
         const summary = await replaceSet(tx, report.providerId, promos, "COLLECTED");
+        for (const [externalKey, compatibility] of collectedCompatibility ?? []) {
+          await tx.promoOverride.updateMany({
+            where: { providerId: report.providerId, externalKey },
+            data: { collectedCompatibility: compatibility },
+          });
+        }
         await createRun(tx, report);
         return summary;
       },
@@ -153,6 +167,133 @@ export class PrismaPromoRepository implements PromoRepository {
   async recordRun(report: RunReport): Promise<void> {
     await createRun(this.prisma, report);
   }
+
+  async listOverrides(providerId: string): Promise<PromoOverride[]> {
+    const rows = await this.prisma.promoOverride.findMany({
+      where: { providerId },
+      orderBy: { externalKey: "asc" },
+    });
+    return rows.map(toOverride);
+  }
+
+  async listOverrideCandidates(providerId: string): Promise<OverrideCandidate[]> {
+    const rows = await this.prisma.promo.findMany({
+      where: {
+        providerId,
+        origin: "COLLECTED",
+        status: { in: ["ACTIVE", "OUTDATED"] },
+        externalKey: { not: null },
+      },
+      select: {
+        externalKey: true,
+        name: true,
+        priceCentavos: true,
+        dataKind: true,
+        dataGb: true,
+        validityValue: true,
+        validityUnit: true,
+        noExpiry: true,
+        compatibility: true,
+        sourceUrl: true,
+      },
+    });
+    return rows.map((row) => ({
+      ...row,
+      externalKey: row.externalKey!,
+      dataGb: row.dataGb === null ? null : Number(row.dataGb),
+    }));
+  }
+
+  async replaceOverrides(sets: OverrideSet[]): Promise<OverrideImportSummary[]> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const summaries: OverrideImportSummary[] = [];
+        for (const set of sets) summaries.push(await replaceProviderOverrides(tx, set));
+        return summaries;
+      },
+      { timeout: 60_000 },
+    );
+  }
+}
+
+function toOverride(row: {
+  providerId: string;
+  externalKey: string;
+  compatibility: PromoCompatibility;
+  verifiedAt: Date;
+  sourceUrl: string;
+  note: string | null;
+}): PromoOverride {
+  return {
+    providerId: row.providerId,
+    externalKey: row.externalKey,
+    compatibility: row.compatibility as PromoOverride["compatibility"],
+    verifiedAt: row.verifiedAt,
+    sourceUrl: row.sourceUrl,
+    ...(row.note ? { note: row.note } : {}),
+  };
+}
+
+/** Replaces one provider's overrides and updates its live collected promos (inside a transaction). */
+async function replaceProviderOverrides(tx: Tx, set: OverrideSet): Promise<OverrideImportSummary> {
+  const { providerId, overrides } = set;
+  const previous = new Map(
+    (await tx.promoOverride.findMany({ where: { providerId } })).map((row) => [row.externalKey, row]),
+  );
+  const live = new Map<string, PromoCompatibility>();
+  const published = await tx.promo.findMany({
+    where: { providerId, origin: "COLLECTED", status: { in: ["ACTIVE", "OUTDATED"] } },
+    select: { externalKey: true, compatibility: true },
+  });
+  for (const row of published) if (row.externalKey) live.set(row.externalKey, row.compatibility);
+
+  await tx.promoOverride.deleteMany({ where: { providerId } });
+
+  let applied = 0;
+  const unmatched: string[] = [];
+  for (const override of overrides) {
+    const earlier = previous.get(override.externalKey);
+    const liveValue = live.get(override.externalKey);
+    // The collector's own value: remembered from an earlier override, else
+    // what the site shows now (no override has been applied to it yet).
+    const collectedCompatibility = earlier?.collectedCompatibility ?? liveValue ?? null;
+
+    await tx.promoOverride.create({
+      data: {
+        providerId,
+        externalKey: override.externalKey,
+        compatibility: override.compatibility,
+        collectedCompatibility,
+        verifiedAt: override.verifiedAt,
+        sourceUrl: override.sourceUrl,
+        note: override.note ?? null,
+      },
+    });
+
+    if (liveValue === undefined) {
+      unmatched.push(override.externalKey);
+      continue;
+    }
+    await tx.promo.update({
+      where: { providerId_externalKey: { providerId, externalKey: override.externalKey } },
+      data: { compatibility: override.compatibility },
+    });
+    applied += 1;
+  }
+
+  // A removed override hands the promo back to the collector's own value.
+  const kept = new Set(overrides.map((override) => override.externalKey));
+  let restored = 0;
+  for (const [externalKey, earlier] of previous) {
+    if (kept.has(externalKey) || !live.has(externalKey) || earlier.collectedCompatibility === null) continue;
+    await tx.promo.update({
+      where: { providerId_externalKey: { providerId, externalKey } },
+      data: { compatibility: earlier.collectedCompatibility },
+    });
+    restored += 1;
+  }
+
+  return { providerId, saved: overrides.length, applied, unmatched, restored };
 }
 
 function createRun(db: Tx | PrismaClient, report: RunReport) {
@@ -160,6 +301,7 @@ function createRun(db: Tx | PrismaClient, report: RunReport) {
   const rawPayload = {
     rejections: report.rejections,
     ...(report.override ? { override: report.override } : {}),
+    ...(report.promoOverrides ? { promoOverrides: report.promoOverrides } : {}),
   };
   return db.scrapeRun.create({
     data: {
@@ -172,7 +314,8 @@ function createRun(db: Tx | PrismaClient, report: RunReport) {
       recordsRejected: report.recordsRejected,
       published: report.published,
       errorDetail: report.errorDetail ?? null,
-      rawPayload: rawPayload as Prisma.InputJsonValue,
+      // Plain strings, numbers and arrays only, so it is valid JSON.
+      rawPayload: rawPayload as unknown as Prisma.InputJsonValue,
     },
   });
 }
