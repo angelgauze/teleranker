@@ -15,7 +15,8 @@ DITO, TNT and GOMO; the provider list is configurable). Requirements live in
 | Globe collector | Implemented, but the site currently blocks it; hand-entered promos are listed beside collected ones |
 | Smart, TNT, GOMO | Manual import only ([`docs/providers.md`](./docs/providers.md)) |
 | Safe publishing, run logs, alerts | Implemented (alerts go to the console until a channel is chosen) |
-| Reviews, admin panel, provider pages, site navigation | Not built yet |
+| Provider pages and site navigation | Implemented (provider highlights to follow) |
+| Reviews, admin panel | Not built yet |
 
 No provider data is committed to this repository. Promos appear only after a
 collection run or a manual import publishes to your own database.
@@ -71,13 +72,14 @@ pnpm dev                                           # http://localhost:3000
 
 ```
 prisma/                     Schema (Provider, Promo, PromoOverride, Review, ScrapeRun) and migrations
-src/app/                    Listing and compare pages
+src/app/                    Listing, compare and provider pages
 src/lib/schema/             Zod schemas: the single validation boundary
 src/lib/collect/            Fetching, validation, publish policy, alerts, provider registry
 src/lib/collect/collectors/ Provider parsers and HTML fixtures
 src/lib/db/                 Prisma client, repository, listing queries, error messages
 src/lib/manual/             CSV parser, promo sheet and override sheet import
 src/lib/overrides/          Applying checked values to collected promos
+src/lib/providers/          Provider page summaries
 src/lib/ranking/            Value metric and sorting
 src/lib/ui/                 Formatting and status helpers
 scripts/                    Collection, import and test-database CLIs
