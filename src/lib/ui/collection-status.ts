@@ -35,7 +35,8 @@ export interface CollectionStatus {
   tone: "ok" | "paused" | "manual" | "none";
   /** Short text label, so the status never relies on colour. */
   label: string;
-  detail: string;
+  /** Short sentences, shown on separate lines. */
+  detail: string[];
 }
 
 const succeeded = (run: RunSummary) => run.status === "SUCCEEDED" && run.published;
@@ -44,16 +45,18 @@ export function describeCollectionStatus(input: CollectionStatusInput): Collecti
   const { providerName, runs, origin, lastVerifiedAt, handEntered } = input;
   const latest = runs[0];
   const byHand = handEntered
-    ? ` Promos the automatic check does not cover are entered manually from ${providerName}'s promo page${
-        handEntered.lastVerifiedAt ? `, last checked ${formatDate(handEntered.lastVerifiedAt)}` : ""
-      }.`
-    : "";
+    ? [
+        `Promos the automatic check does not cover are updated manually from ${providerName}'s promo page${
+          handEntered.lastVerifiedAt ? `, last checked ${formatDate(handEntered.lastVerifiedAt)}` : ""
+        }.`,
+      ]
+    : [];
 
   if (latest && succeeded(latest)) {
     return {
       tone: "ok",
       label: "Updated automatically",
-      detail: `Last checked ${formatDate(latest.startedAt)}.${byHand}`,
+      detail: [`Last checked ${formatDate(latest.startedAt)}.`, ...byHand],
     };
   }
 
@@ -62,11 +65,13 @@ export function describeCollectionStatus(input: CollectionStatusInput): Collecti
     return {
       tone: "paused",
       label: "Update on hold",
-      detail: `The latest automatic check on ${formatDate(latest.startedAt)} found big changes, so they are waiting for review. ${
+      detail: [
+        `The latest automatic check on ${formatDate(latest.startedAt)} found big changes, so they are waiting for review.`,
         lastVerifiedAt
           ? `Showing the details last verified ${formatDate(lastVerifiedAt)}.`
-          : "No verified details are available yet."
-      }${byHand}`,
+          : "No verified details are available yet.",
+        ...byHand,
+      ],
     };
   }
 
@@ -80,29 +85,29 @@ export function describeCollectionStatus(input: CollectionStatusInput): Collecti
     const showing = !lastVerifiedAt
       ? "No verified details are available yet."
       : origin === "MANUAL" && !handEntered
-        ? `Showing details entered manually from ${providerName}'s promo page, last checked ${formatDate(lastVerifiedAt)}.`
-        : `Showing the details last verified ${formatDate(lastVerifiedAt)}.${byHand}`;
+        ? `Showing details updated manually from ${providerName}'s promo page, last checked ${formatDate(lastVerifiedAt)}.`
+        : `Showing the details last verified ${formatDate(lastVerifiedAt)}.`;
 
     return {
       tone: "paused",
       label: "Automatic updates paused",
-      detail: `Automatic checks have not completed since ${formatDate(since)}. ${showing}`,
+      detail: [`Automatic checks have not completed since ${formatDate(since)}.`, showing, ...byHand],
     };
   }
 
   if (origin || lastVerifiedAt) {
     return {
       tone: "manual",
-      label: "Entered manually",
-      detail: `From ${providerName}'s promo page${
-        lastVerifiedAt ? `, last checked ${formatDate(lastVerifiedAt)}` : ""
-      }.`,
+      label: "Updated manually",
+      detail: [
+        `From ${providerName}'s promo page${lastVerifiedAt ? `, last checked ${formatDate(lastVerifiedAt)}` : ""}.`,
+      ],
     };
   }
 
   return {
     tone: "none",
     label: "Not published yet",
-    detail: "No promos from this provider have been published yet.",
+    detail: ["No promos from this provider have been published yet."],
   };
 }

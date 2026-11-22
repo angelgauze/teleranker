@@ -15,7 +15,7 @@ describe("describeCollectionStatus", () => {
       lastVerifiedAt: at(20),
     });
     expect(status).toMatchObject({ tone: "ok", label: "Updated automatically" });
-    expect(status.detail).toBe("Last checked Nov 20, 2026.");
+    expect(status.detail).toEqual(["Last checked Nov 20, 2026."]);
   });
 
   it("reports paused updates since the first failure after the last completed run", () => {
@@ -26,9 +26,10 @@ describe("describeCollectionStatus", () => {
       lastVerifiedAt: at(19),
     });
     expect(status.tone).toBe("paused");
-    expect(status.detail).toBe(
-      "Automatic checks have not completed since Nov 20, 2026. Showing details entered manually from Globe's promo page, last checked Nov 19, 2026.",
-    );
+    expect(status.detail).toEqual([
+      "Automatic checks have not completed since Nov 20, 2026.",
+      "Showing details updated manually from Globe's promo page, last checked Nov 19, 2026.",
+    ]);
   });
 
   it("does not count a held-back run as not completed", () => {
@@ -39,14 +40,14 @@ describe("describeCollectionStatus", () => {
       lastVerifiedAt: at(13),
     });
     expect(status.label).toBe("Automatic updates paused");
-    expect(status.detail).toMatch(/^Automatic checks have not completed since Nov 27, 2026\./);
+    expect(status.detail[0]).toBe("Automatic checks have not completed since Nov 27, 2026.");
   });
 
   it("handles a run that is still in progress", () => {
     const running: RunSummary = { status: "RUNNING", published: false, startedAt: at(27) };
     expect(
       describeCollectionStatus({ providerName: "DITO", runs: [running, ok(20)], origin: "COLLECTED" })
-        .detail,
+        .detail.join(" "),
     ).toMatch(/since Nov 27, 2026/);
   });
 
@@ -58,10 +59,11 @@ describe("describeCollectionStatus", () => {
       lastVerifiedAt: at(20),
     });
     expect(status).toMatchObject({ tone: "paused", label: "Update on hold" });
-    expect(status.detail).toBe(
-      "The latest automatic check on Nov 27, 2026 found big changes, so they are waiting for review. Showing the details last verified Nov 20, 2026.",
-    );
-    expect(`${status.label} ${status.detail}`).not.toMatch(/cloudflare|challenge|bot|403|blocked/i);
+    expect(status.detail).toEqual([
+      "The latest automatic check on Nov 27, 2026 found big changes, so they are waiting for review.",
+      "Showing the details last verified Nov 20, 2026.",
+    ]);
+    expect(`${status.label} ${status.detail.join(" ")}`).not.toMatch(/cloudflare|challenge|bot|403|blocked/i);
   });
 
   it("reports paused updates when no run has ever succeeded", () => {
@@ -70,9 +72,10 @@ describe("describeCollectionStatus", () => {
       runs: [failed(27), failed(20)],
       origin: null,
     });
-    expect(status.detail).toBe(
-      "Automatic checks have not completed since Nov 20, 2026. No verified details are available yet.",
-    );
+    expect(status.detail).toEqual([
+      "Automatic checks have not completed since Nov 20, 2026.",
+      "No verified details are available yet.",
+    ]);
   });
 
   it("mentions hand-entered promos listed beside collected ones", () => {
@@ -84,9 +87,10 @@ describe("describeCollectionStatus", () => {
       handEntered: { lastVerifiedAt: at(17) },
     });
     expect(healthy).toMatchObject({ tone: "ok", label: "Updated automatically" });
-    expect(healthy.detail).toBe(
-      "Last checked Nov 26, 2026. Promos the automatic check does not cover are entered manually from Globe's promo page, last checked Nov 17, 2026.",
-    );
+    expect(healthy.detail).toEqual([
+      "Last checked Nov 26, 2026.",
+      "Promos the automatic check does not cover are updated manually from Globe's promo page, last checked Nov 17, 2026.",
+    ]);
 
     const paused = describeCollectionStatus({
       providerName: "DITO",
@@ -95,9 +99,11 @@ describe("describeCollectionStatus", () => {
       lastVerifiedAt: at(26),
       handEntered: { lastVerifiedAt: at(26) },
     });
-    expect(paused.detail).toBe(
-      "Automatic checks have not completed since Nov 25, 2026. Showing the details last verified Nov 26, 2026. Promos the automatic check does not cover are entered manually from DITO's promo page, last checked Nov 26, 2026.",
-    );
+    expect(paused.detail).toEqual([
+      "Automatic checks have not completed since Nov 25, 2026.",
+      "Showing the details last verified Nov 26, 2026.",
+      "Promos the automatic check does not cover are updated manually from DITO's promo page, last checked Nov 26, 2026.",
+    ]);
   });
 
   it("reports hand-entered providers", () => {
@@ -107,8 +113,8 @@ describe("describeCollectionStatus", () => {
       origin: "MANUAL",
       lastVerifiedAt: at(18),
     });
-    expect(status).toMatchObject({ tone: "manual", label: "Entered manually" });
-    expect(status.detail).toBe("From Smart's promo page, last checked Nov 18, 2026.");
+    expect(status).toMatchObject({ tone: "manual", label: "Updated manually" });
+    expect(status.detail).toEqual(["From Smart's promo page, last checked Nov 18, 2026."]);
   });
 
   it("reports providers with nothing published", () => {
@@ -124,6 +130,6 @@ describe("describeCollectionStatus", () => {
       origin: "MANUAL",
       lastVerifiedAt: at(19),
     });
-    expect(`${status.label} ${status.detail}`).not.toMatch(/cloudflare|challenge|bot|403|blocked/i);
+    expect(`${status.label} ${status.detail.join(" ")}`).not.toMatch(/cloudflare|challenge|bot|403|blocked/i);
   });
 });

@@ -70,6 +70,12 @@ export function formatDate(date: Date | undefined): string {
   });
 }
 
+/** The listing's short verification line: "Checked Nov 19, 2026" or "Check date unknown". */
+export function formatChecked(date: Date | undefined, origin?: PromoOrigin): string {
+  const how = origin === "COLLECTED" ? " automatically" : origin === "MANUAL" ? " manually" : "";
+  return date ? `Checked${how} ${formatDate(date)}` : `Checked${how}, date unknown`.replace(/^Checked, /, "Check ");
+}
+
 /**
  * Calls and texts keep unknown, none and limited distinct:
  * undefined = not stated, 0 = explicitly none, unlimited = false with no
