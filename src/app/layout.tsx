@@ -3,8 +3,9 @@ import { SiteHeader } from "./_components/site-header";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  // Every tab reads "{page heading} · TeleRanker"; pages set their own heading as the title.
   title: {
-    default: "TeleRanker — Telecom promo comparison (Philippines)",
+    default: "TeleRanker",
     template: "%s · TeleRanker",
   },
   description:

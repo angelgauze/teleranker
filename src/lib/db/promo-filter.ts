@@ -13,7 +13,18 @@ export interface PromoFilter {
    * Outdated promos are always listed, marked and after current ones.
    */
   includeInactive?: boolean;
+  /** Matches promo or provider names, ignoring case (see normalizeSearch). */
+  search?: string;
   sort: SortKey;
+}
+
+/** Longest search kept; anything longer is cut, so a crafted address stays cheap. */
+const MAX_SEARCH_LENGTH = 60;
+
+/** Trimmed search text with single spaces, or undefined when blank. */
+export function normalizeSearch(raw: string | undefined): string | undefined {
+  const text = (raw ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_SEARCH_LENGTH);
+  return text || undefined;
 }
 
 /** A 4G filter also matches dual-network promos, and vice versa. */
@@ -46,6 +57,14 @@ export function buildPromoWhere(filter: PromoFilter): Prisma.PromoWhereInput {
 
   if (filter.compatibility) {
     where.compatibility = { in: compatibilityValues(filter.compatibility) };
+  }
+
+  if (filter.search) {
+    // Prisma parameterises the text, so the search cannot change the query.
+    where.OR = [
+      { name: { contains: filter.search, mode: "insensitive" } },
+      { provider: { name: { contains: filter.search, mode: "insensitive" } } },
+    ];
   }
 
   return where;

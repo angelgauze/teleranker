@@ -18,7 +18,7 @@ const getProviderOverview = cache((id: string) => loadProviderOverview(id));
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const { provider } = await getProviderOverview(id);
-  return { title: provider ? `${provider.name} promos` : "Provider" };
+  return { title: provider ? provider.name : "Page not found" };
 }
 
 function OfficialLink({ href, label }: { href?: string; label: string }) {
