@@ -64,17 +64,20 @@ pnpm dev                                           # http://localhost:3000
 | `pnpm scrape --provider=<id> --fixture=<path>` | Parse a saved page offline |
 | `pnpm scrape ... --accept-smaller-set` | Publish a held-back run after checking the provider's page ([maintenance](./docs/providers.md#maintenance-runs-on-hold-and-errors)) |
 | `pnpm import:promos --file=<csv> [--publish] [--replace-collected]` | Validate (and publish) the hand-entered promo sheet ([manual import](./docs/providers.md#manual-import)) |
+| `pnpm overrides:template --provider=<id> --out=<csv>` | Export the override sheet for a collected provider, pre-filled ([checked values](./docs/providers.md#checked-values-on-collected-promos-overrides)) |
+| `pnpm import:overrides --file=<csv> [--publish]` | Validate (and save) checked 4G/5G values for collected promos |
 
 ## Layout
 
 ```
-prisma/                     Schema (Provider, Promo, Review, ScrapeRun) and migrations
+prisma/                     Schema (Provider, Promo, PromoOverride, Review, ScrapeRun) and migrations
 src/app/                    Listing and compare pages
 src/lib/schema/             Zod schemas: the single validation boundary
 src/lib/collect/            Fetching, validation, publish policy, alerts, provider registry
 src/lib/collect/collectors/ Provider parsers and HTML fixtures
 src/lib/db/                 Prisma client, repository, listing queries, error messages
-src/lib/manual/             CSV parser and promo sheet import
+src/lib/manual/             CSV parser, promo sheet and override sheet import
+src/lib/overrides/          Applying checked values to collected promos
 src/lib/ranking/            Value metric and sorting
 src/lib/ui/                 Formatting and status helpers
 scripts/                    Collection, import and test-database CLIs
@@ -108,6 +111,8 @@ listed but never scored. Coverage and speed are not part of the score. Details:
 - Compatibility is about phones: `FIVE_G` needs a 5G phone,
   `FOUR_G_AND_FIVE_G` works on any LTE phone, `UNKNOWN` by default.
 - `origin` is `COLLECTED` (collector run) or `MANUAL` (import).
+- `PromoOverride` holds values a person checked (4G/5G compatibility for now),
+  applied on top of collected promos on every run.
 - A promo not re-checked for more than 14 days shows as "Outdated"
   (`src/lib/freshness.ts`).
 
