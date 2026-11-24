@@ -5,7 +5,16 @@ import { cache } from "react";
 
 // The listing depends on live database state, so it cannot be prerendered.
 export const instant = false;
+import {
+  Differences,
+  PHONE_ROW,
+  PhoneSwitch,
+  PlanForNeeds,
+  type CompareRow,
+} from "../_components/compare-extras";
 import { SourceLink } from "../_components/source-link";
+import { displayNames, type ComparedPromo } from "@/lib/compare/differences";
+import { isFourGOnlyPhone, parseNeeds } from "@/lib/compare/needs";
 import { loadPromosByIds, type PublishedPromo } from "@/lib/db/promos";
 import {
   COMPATIBILITY_LABELS,
@@ -23,7 +32,7 @@ import {
   STATUS_LABELS,
 } from "@/lib/ui/format";
 
-const ROWS: Array<{ label: string; value: (entry: PublishedPromo) => string }> = [
+const ROWS: CompareRow[] = [
   { label: "Provider", value: ({ providerName }) => providerName },
   { label: "Status", value: ({ promo }) => formatStatus(promo.status) },
   { label: "Price", value: ({ promo }) => formatPeso(promo.priceCentavos) },
@@ -120,7 +129,8 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
 export default async function ComparePage({ searchParams }: Props) {
   await connection();
 
-  const ids = pickedIds(await searchParams);
+  const params = await searchParams;
+  const ids = pickedIds(params);
 
   if (ids.length === 0) {
     return (
@@ -172,6 +182,9 @@ export default async function ComparePage({ searchParams }: Props) {
   }
 
   const inactive = promos.filter(({ promo }) => promo.status !== "ACTIVE");
+  const labels = displayNames(promos[0], promos[1]);
+  const compared: ComparedPromo[] = promos.map((entry, index) => ({ ...entry, label: labels[index] }));
+  const rows = isFourGOnlyPhone(params) ? [PHONE_ROW, ...ROWS] : ROWS;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
@@ -194,6 +207,9 @@ export default async function ComparePage({ searchParams }: Props) {
         </p>
       ) : null}
 
+      <Differences a={compared[0]} b={compared[1]} />
+      <PhoneSwitch ids={ids} params={params} />
+
       {/* Phones: one field at a time, the two values side by side, names pinned on top. */}
       <div className="mt-6 md:hidden">
         <div className="sticky top-0 z-10 grid grid-cols-2 gap-3 border-b border-zinc-300 bg-white py-2 text-sm font-semibold dark:border-zinc-700 dark:bg-zinc-950">
@@ -203,7 +219,7 @@ export default async function ComparePage({ searchParams }: Props) {
             </p>
           ))}
         </div>
-        {ROWS.map((row) => (
+        {rows.map((row) => (
           <section key={row.label} className="border-b border-zinc-200 py-2 dark:border-zinc-800">
             <h2 className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{row.label}</h2>
             <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
@@ -246,7 +262,7 @@ export default async function ComparePage({ searchParams }: Props) {
             </tr>
           </thead>
           <tbody>
-            {ROWS.map((row) => (
+            {rows.map((row) => (
               <tr key={row.label} className="border-b border-zinc-200 dark:border-zinc-800">
                 <th scope="row" className="px-2 py-2 text-left font-medium">
                   {row.label}
@@ -276,6 +292,8 @@ export default async function ComparePage({ searchParams }: Props) {
         &ldquo;Unknown&rdquo; means the value was not published or could not be verified. It is
         never treated as zero.
       </p>
+
+      <PlanForNeeds ids={ids} params={params} result={parseNeeds(params)} entries={compared} />
     </main>
   );
 }
