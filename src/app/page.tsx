@@ -230,10 +230,7 @@ export default async function HomePage({
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
       <header className="border-b border-zinc-200 pb-6 dark:border-zinc-800">
-        <p className={`text-sm font-medium tracking-wide uppercase ${MUTED}`}>
-          Telecom promo comparison · Philippines
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Mobile promos</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Mobile promos</h1>
         <div className="mt-3 max-w-2xl space-y-1 text-zinc-700 dark:text-zinc-300">
           <p>
             Prepaid promos collected from provider pages or entered manually from them, each with the
