@@ -61,7 +61,13 @@ const round = (value: number, places = 4) => {
 export function computeValueMetrics(
   promo: Pick<
     PromoInput,
-    "priceCentavos" | "dataKind" | "dataGb" | "allAccessGb" | "validityValue" | "validityUnit"
+    | "priceCentavos"
+    | "dataKind"
+    | "dataGb"
+    | "allAccessGb"
+    | "validityValue"
+    | "validityUnit"
+    | "noExpiry"
   >,
 ): ValueMetrics {
   const totalGb = promo.dataKind === "TOTAL" ? (promo.dataGb ?? null) : null;
@@ -87,12 +93,23 @@ export function computeValueMetrics(
     return { ...base, reason: "no comparable data allowance was verified" };
   }
 
-  if (validityDays === null) {
-    return { ...base, reason: "validity period is unknown" };
-  }
-
   if (!(pricePhp > 0)) {
     return { ...base, reason: "price is zero or unknown" };
+  }
+
+  // Validity cancels out of GB per ₱100, so a promo that never expires is
+  // scored like any other; only the per-day figures do not apply (team
+  // decision, 2026-11-20; see docs/ranking.md).
+  if (promo.noExpiry) {
+    return {
+      ...base,
+      gbPerHundredPesos: round((comparableGb / pricePhp) * 100),
+      scoreable: true,
+    };
+  }
+
+  if (validityDays === null) {
+    return { ...base, reason: "validity period is unknown" };
   }
 
   return {
@@ -151,8 +168,10 @@ export function sortScored<T extends ScoredPromo>(entries: T[], key: SortKey): T
           a.promo.name.localeCompare(b.promo.name),
       );
     case "validity":
+      // No-expiry promos last longest, so they come first; unknown validity last.
       return entries.sort(
         (a, b) =>
+          Number(Boolean(b.promo.noExpiry)) - Number(Boolean(a.promo.noExpiry)) ||
           compareNullableNumbers(a.metrics.validityDays, b.metrics.validityDays, -1) ||
           a.promo.name.localeCompare(b.promo.name),
       );

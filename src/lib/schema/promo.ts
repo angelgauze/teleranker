@@ -30,6 +30,10 @@ export const VALIDITY_UNITS = ["DAY", "WEEK", "MONTH"] as const;
 
 export const PROMO_STATUSES = ["ACTIVE", "OUTDATED", "UNAVAILABLE"] as const;
 
+/** How a record reached the published set: a collector run or a manual import. */
+export const PROMO_ORIGINS = ["COLLECTED", "MANUAL"] as const;
+export type PromoOrigin = (typeof PROMO_ORIGINS)[number];
+
 export const promoCompatibilitySchema = z.enum(PROMO_COMPATIBILITIES);
 export const dataAllocationKindSchema = z.enum(DATA_ALLOCATION_KINDS);
 export const validityUnitSchema = z.enum(VALIDITY_UNITS);
@@ -54,6 +58,8 @@ export const promoInputSchema = z
 
     validityValue: z.number().int().positive().optional(),
     validityUnit: validityUnitSchema.optional(),
+    /** The provider states the promo never expires. Distinct from unknown validity. */
+    noExpiry: z.boolean().optional(),
 
     compatibility: promoCompatibilitySchema,
 
@@ -107,6 +113,14 @@ export const promoInputSchema = z
         code: "custom",
         path: ["validityUnit"],
         message: "validityValue and validityUnit must be provided together",
+      });
+    }
+
+    if (promo.noExpiry === true && promo.validityValue !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["noExpiry"],
+        message: "a promo with no expiry cannot also have a validity period",
       });
     }
 

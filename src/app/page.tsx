@@ -3,19 +3,34 @@ import { connection } from "next/server";
 
 // The listing depends on live database state, so it cannot be prerendered.
 export const instant = false;
-import { loadListing, type PromoFilter } from "@/lib/db/promos";
+import { CollectionStatusList } from "./_components/collection-status";
+import { ProviderBadge } from "./_components/provider-badge";
+import { SourceLink } from "./_components/source-link";
+import {
+  loadCollectionStatuses,
+  loadListing,
+  type PromoFilter,
+  type PublishedPromo,
+} from "@/lib/db/promos";
+import { OUTDATED_AFTER_DAYS } from "@/lib/freshness";
+import { parseBudgetRange, type BudgetRange } from "@/lib/money";
 import type { SortKey } from "@/lib/ranking/value";
 import type { PromoCompatibility } from "@/lib/schema/promo";
 import {
   COMPATIBILITY_LABELS,
+  formatCalls,
+  formatDataAllocation,
   formatDate,
   formatGb,
+  formatPerDay,
   formatPeso,
+  formatStatus,
+  formatTexts,
   formatValidity,
 } from "@/lib/ui/format";
 
 const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
-  { value: "value", label: "Best value (all-access GB per ₱100)" },
+  { value: "value", label: "Most all-access GB per ₱100" },
   { value: "price", label: "Lowest price first" },
   { value: "data", label: "Most data first" },
   { value: "validity", label: "Longest validity first" },
@@ -29,18 +44,18 @@ const COMPATIBILITY_OPTIONS: Array<{ value: "" | PromoCompatibility; label: stri
   { value: "UNKNOWN", label: "Not yet verified" },
 ];
 
-const NUMBER = /^\d+(?:\.\d{1,2})?$/;
+const FIELD_CLASS =
+  "rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950";
+const MUTED = "text-zinc-500 dark:text-zinc-400";
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function pesosToCentavos(value: string | undefined): number | undefined {
-  if (!value || !NUMBER.test(value)) return undefined;
-  return Math.round(Number(value) * 100);
-}
-
-function parseFilter(params: Record<string, string | string[] | undefined>): PromoFilter {
+function parseFilter(params: Record<string, string | string[] | undefined>): {
+  filter: PromoFilter;
+  budget: BudgetRange;
+} {
   const sortParam = first(params.sort);
   const sort = SORT_OPTIONS.some((option) => option.value === sortParam)
     ? (sortParam as SortKey)
@@ -53,13 +68,125 @@ function parseFilter(params: Record<string, string | string[] | undefined>): Pro
     ? (compatibilityParam as PromoCompatibility)
     : undefined;
 
+  const budget = parseBudgetRange(first(params.min), first(params.max));
+
   return {
-    providerId: first(params.provider) || undefined,
-    minPriceCentavos: pesosToCentavos(first(params.min)),
-    maxPriceCentavos: pesosToCentavos(first(params.max)),
-    compatibility,
-    sort,
+    filter: {
+      providerId: first(params.provider) || undefined,
+      minPriceCentavos: budget.minCentavos,
+      maxPriceCentavos: budget.maxCentavos,
+      compatibility,
+      includeInactive: first(params.inactive) === "1",
+      sort,
+    },
+    budget,
   };
+}
+
+/**
+ * One cell. On phones the table collapses into cards, so each cell shows its
+ * own label; from the md breakpoint up the column header takes over and the
+ * inline label is hidden (display: none also removes it for screen readers).
+ */
+function Cell({
+  label,
+  children,
+  className = "",
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <td className={`flex gap-3 px-2 py-1 md:table-cell md:py-3 ${className}`}>
+      <span className={`w-28 shrink-0 text-xs font-medium md:hidden ${MUTED}`}>{label}</span>
+      <span className="min-w-0">{children}</span>
+    </td>
+  );
+}
+
+function PromoRow({ entry }: { entry: PublishedPromo }) {
+  const { id, promo, metrics, providerName } = entry;
+  const inactive = promo.status !== "ACTIVE";
+
+  return (
+    <tr
+      className={`mb-3 block rounded-lg border border-zinc-200 py-2 align-top md:mb-0 md:table-row md:rounded-none md:border-0 md:border-b md:py-0 dark:border-zinc-800 ${
+        inactive ? "bg-zinc-50 dark:bg-zinc-900/60" : ""
+      }`}
+    >
+      <td className="float-right px-3 py-1 md:float-none md:table-cell md:px-2 md:py-3">
+        <input
+          type="checkbox"
+          name="id"
+          value={id}
+          aria-label={`Select ${promo.name} for comparison`}
+          className="size-5 md:size-4"
+        />
+      </td>
+      <th scope="row" className="block px-2 pt-1 pb-2 text-left font-medium md:table-cell md:py-3">
+        {promo.name}
+        <span className="mt-1 block">
+          <ProviderBadge name={providerName} />
+        </span>
+      </th>
+      <Cell label="Status">
+        <span className={inactive ? "font-medium text-amber-800 dark:text-amber-300" : ""}>
+          {formatStatus(promo.status)}
+        </span>
+      </Cell>
+      <Cell label="Price" className="md:whitespace-nowrap">
+        {formatPeso(promo.priceCentavos)}
+      </Cell>
+      <Cell label="Data">
+        {formatDataAllocation(promo.dataKind, metrics.totalGb)}
+        {metrics.comparableGb !== null &&
+        metrics.totalGb !== null &&
+        metrics.comparableGb !== metrics.totalGb ? (
+          <span className={`block text-xs ${MUTED}`}>
+            {formatGb(metrics.comparableGb)} all-access
+          </span>
+        ) : null}
+      </Cell>
+      <Cell label="Validity" className="md:whitespace-nowrap">
+        {formatValidity(promo.validityValue, promo.validityUnit, promo.noExpiry)}
+      </Cell>
+      <Cell label="4G/5G" className="md:whitespace-nowrap">
+        {COMPATIBILITY_LABELS[promo.compatibility]}
+      </Cell>
+      <Cell label="Calls / texts">
+        <span className="block">Calls: {formatCalls(promo)}</span>
+        <span className="block">Texts: {formatTexts(promo)}</span>
+      </Cell>
+      <Cell label="Value">
+        {metrics.scoreable && metrics.gbPerHundredPesos !== null ? (
+          <>
+            <span className="font-medium">{metrics.gbPerHundredPesos.toFixed(2)} GB per ₱100</span>
+            <span className={`block text-xs ${MUTED}`}>
+              {promo.noExpiry
+                ? "No expiry, so no per-day figures"
+                : `${formatPerDay(metrics.dataPerDayGb, "gb")} · ${formatPerDay(metrics.pricePerDayPhp, "php")}`}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="text-zinc-600 dark:text-zinc-400">Not comparable</span>
+            <span className={`block text-xs ${MUTED}`}>{metrics.reason}</span>
+          </>
+        )}
+      </Cell>
+      <Cell label="Verified" className="md:whitespace-nowrap">
+        {formatDate(promo.lastVerifiedAt)}
+      </Cell>
+      <Cell label="Source">
+        <SourceLink
+          sourceUrl={promo.sourceUrl}
+          providerName={providerName}
+          providerPromoPageUrl={entry.providerPromoPageUrl}
+        />
+      </Cell>
+    </tr>
+  );
 }
 
 export default async function HomePage({
@@ -70,19 +197,27 @@ export default async function HomePage({
   await connection();
 
   const params = await searchParams;
-  const filter = parseFilter(params);
-  const { promos, providers, databaseUnavailable } = await loadListing(filter);
+  const { filter, budget } = parseFilter(params);
+  const [{ promos, providers, databaseUnavailable }, statuses] = await Promise.all([
+    loadListing(filter),
+    loadCollectionStatuses(),
+  ]);
+  const count = (status: string) => promos.filter(({ promo }) => promo.status === status).length;
+  const activeCount = count("ACTIVE");
+  const outdatedCount = count("OUTDATED");
+  const unavailableCount = count("UNAVAILABLE");
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
+    <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
       <header className="border-b border-zinc-200 pb-6 dark:border-zinc-800">
-        <p className="text-sm font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+        <p className={`text-sm font-medium tracking-wide uppercase ${MUTED}`}>
           Telecom promo comparison · Philippines
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Compare mobile promos</h1>
         <p className="mt-3 max-w-2xl text-zinc-700 dark:text-zinc-300">
-          Promos collected from provider pages, with the date each record was last verified.
-          Value is ranked on all-access data per peso, not on price alone.
+          Promos collected from provider pages or entered by hand from them, with the date each
+          record was last verified. Value is ranked on all-access data per peso, not on price
+          alone.
         </p>
       </header>
 
@@ -99,7 +234,7 @@ export default async function HomePage({
             id="provider"
             name="provider"
             defaultValue={filter.providerId ?? ""}
-            className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+            className={FIELD_CLASS}
           >
             <option value="">All providers</option>
             {providers.map((provider) => (
@@ -117,12 +252,14 @@ export default async function HomePage({
           <input
             id="min"
             name="min"
-            type="number"
-            min="0"
-            step="0.01"
+            type="text"
             inputMode="decimal"
-            defaultValue={params.min ?? ""}
-            className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+            autoComplete="off"
+            placeholder="e.g. 50"
+            aria-invalid={budget.invalid.min || undefined}
+            aria-describedby={budget.errors.length > 0 ? "budget-errors" : undefined}
+            defaultValue={first(params.min) ?? ""}
+            className={FIELD_CLASS}
           />
         </div>
 
@@ -133,12 +270,14 @@ export default async function HomePage({
           <input
             id="max"
             name="max"
-            type="number"
-            min="0"
-            step="0.01"
+            type="text"
             inputMode="decimal"
-            defaultValue={params.max ?? ""}
-            className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+            autoComplete="off"
+            placeholder="e.g. 1,299"
+            aria-invalid={budget.invalid.max || undefined}
+            aria-describedby={budget.errors.length > 0 ? "budget-errors" : undefined}
+            defaultValue={first(params.max) ?? ""}
+            className={FIELD_CLASS}
           />
         </div>
 
@@ -150,7 +289,7 @@ export default async function HomePage({
             id="compatibility"
             name="compatibility"
             defaultValue={filter.compatibility ?? ""}
-            className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+            className={FIELD_CLASS}
           >
             {COMPATIBILITY_OPTIONS.map((option) => (
               <option key={option.value || "any"} value={option.value}>
@@ -164,12 +303,7 @@ export default async function HomePage({
           <label htmlFor="sort" className="text-sm font-medium">
             Sort by
           </label>
-          <select
-            id="sort"
-            name="sort"
-            defaultValue={filter.sort}
-            className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950"
-          >
+          <select id="sort" name="sort" defaultValue={filter.sort} className={FIELD_CLASS}>
             {SORT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -178,18 +312,44 @@ export default async function HomePage({
           </select>
         </div>
 
-        <div className="flex items-end gap-3 sm:col-span-2 lg:col-span-5">
-          <button
-            type="submit"
-            className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-          >
-            Apply filters
-          </button>
-          <Link href="/" className="text-sm underline underline-offset-2">
-            Reset
-          </Link>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:col-span-2 lg:col-span-5">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="inactive"
+              value="1"
+              defaultChecked={filter.includeInactive}
+              className="size-4"
+            />
+            Include promos that are no longer offered
+          </label>
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            >
+              Apply filters
+            </button>
+            <Link href="/" className="text-sm underline underline-offset-2">
+              Reset
+            </Link>
+          </div>
         </div>
+
+        {budget.errors.length > 0 ? (
+          <ul
+            id="budget-errors"
+            role="alert"
+            className="text-sm text-amber-900 sm:col-span-2 lg:col-span-5 dark:text-amber-200"
+          >
+            {budget.errors.map((error) => (
+              <li key={error}>{error}</li>
+            ))}
+          </ul>
+        ) : null}
       </form>
+
+      {databaseUnavailable ? null : <CollectionStatusList statuses={statuses} />}
 
       {databaseUnavailable ? (
         <section
@@ -199,8 +359,8 @@ export default async function HomePage({
           <h2 className="font-semibold">Database not available</h2>
           <p className="mt-1">
             The promo database is not configured or cannot be reached. Set <code>DATABASE_URL</code>,
-            run <code>pnpm db:migrate</code>, then publish a collection run with{" "}
-            <code>pnpm scrape --live --publish</code>.
+            run <code>pnpm db:migrate</code>, then publish data with{" "}
+            <code>pnpm scrape --live --publish</code> or <code>pnpm import:promos --publish</code>.
           </p>
         </section>
       ) : promos.length === 0 ? (
@@ -210,17 +370,28 @@ export default async function HomePage({
         >
           <h2 className="text-base font-semibold">No published promos match these filters</h2>
           <p className="mt-1">
-            Run a collection to publish data: <code>pnpm scrape --provider=all --live --publish</code>.
-            If a provider has never been collected, its promos will not appear here.
+            Try widening the budget or choosing another provider or compatibility.
+            {filter.includeInactive
+              ? ""
+              : " Promos that are no longer offered are hidden unless you include them."}
+          </p>
+          <p className="mt-1">
+            If nothing has been published yet, run a collection (
+            <code>pnpm scrape --provider=all --live --publish</code>) or a manual import (
+            <code>pnpm import:promos --file=&lt;csv&gt; --publish</code>).
           </p>
         </section>
       ) : (
         <form method="get" action="/compare" className="mt-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {promos.length} {promos.length === 1 ? "promo" : "promos"} published
+              {activeCount} current {activeCount === 1 ? "promo" : "promos"}
+              {outdatedCount > 0
+                ? ` · ${outdatedCount} outdated (not re-checked in over ${OUTDATED_AFTER_DAYS} days), listed after`
+                : ""}
+              {unavailableCount > 0 ? ` · ${unavailableCount} no longer offered, listed last` : ""}
               {filter.compatibility === "UNKNOWN"
-                ? " · compatibility is not verified for any published promo yet"
+                ? " · showing promos whose 4G/5G compatibility is not yet verified"
                 : ""}
             </p>
             <button
@@ -231,104 +402,32 @@ export default async function HomePage({
             </button>
           </div>
 
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[64rem] border-collapse text-sm">
+          <div className="mt-4 md:overflow-x-auto">
+            <table className="block w-full border-collapse text-sm md:table md:min-w-[72rem]">
               <caption className="sr-only">
-                Published promos with price, data, validity, compatibility and value
+                Published promos with status, price, data, validity, compatibility, calls and
+                texts, value, verification date and source
               </caption>
-              <thead>
+              <thead className="hidden md:table-header-group">
                 <tr className="border-b border-zinc-300 text-left dark:border-zinc-700">
                   <th scope="col" className="w-10 px-2 py-2">
                     <span className="sr-only">Select for comparison</span>
                   </th>
                   <th scope="col" className="px-2 py-2">Promo</th>
+                  <th scope="col" className="px-2 py-2">Status</th>
                   <th scope="col" className="px-2 py-2">Price</th>
                   <th scope="col" className="px-2 py-2">Data</th>
                   <th scope="col" className="px-2 py-2">Validity</th>
                   <th scope="col" className="px-2 py-2">4G/5G</th>
+                  <th scope="col" className="px-2 py-2">Calls / texts</th>
                   <th scope="col" className="px-2 py-2">Value</th>
                   <th scope="col" className="px-2 py-2">Verified</th>
                   <th scope="col" className="px-2 py-2">Source</th>
                 </tr>
               </thead>
-              <tbody>
-                {promos.map(({ id, promo, metrics, providerName }) => (
-                  <tr key={id} className="border-b border-zinc-200 align-top dark:border-zinc-800">
-                    <td className="px-2 py-3">
-                      <input
-                        type="checkbox"
-                        name="id"
-                        value={id}
-                        aria-label={`Select ${promo.name} for comparison`}
-                      />
-                    </td>
-                    <th scope="row" className="px-2 py-3 text-left font-medium">
-                      {promo.name}
-                      <span className="block text-xs font-normal text-zinc-500 dark:text-zinc-400">
-                        {providerName}
-                      </span>
-                    </th>
-                    <td className="px-2 py-3 whitespace-nowrap">{formatPeso(promo.priceCentavos)}</td>
-                    <td className="px-2 py-3">
-                      {promo.dataKind === "UNLIMITED"
-                        ? "Unlimited"
-                        : promo.dataKind === "NONE"
-                          ? "No data"
-                          : promo.dataKind === "UNKNOWN"
-                            ? "Unknown"
-                            : formatGb(metrics.totalGb)}
-                      {metrics.comparableGb !== null &&
-                      metrics.totalGb !== null &&
-                      metrics.comparableGb !== metrics.totalGb ? (
-                        <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                          {formatGb(metrics.comparableGb)} all-access
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-2 py-3 whitespace-nowrap">
-                      {formatValidity(promo.validityValue, promo.validityUnit)}
-                    </td>
-                    <td className="px-2 py-3 whitespace-nowrap">
-                      {COMPATIBILITY_LABELS[promo.compatibility]}
-                    </td>
-                    <td className="px-2 py-3">
-                      {metrics.scoreable && metrics.gbPerHundredPesos !== null ? (
-                        <>
-                          <span className="font-medium">
-                            {metrics.gbPerHundredPesos.toFixed(2)} GB per ₱100
-                          </span>
-                          <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                            {metrics.dataPerDayGb?.toFixed(2)} GB/day · ₱
-                            {metrics.pricePerDayPhp?.toFixed(2)}/day
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-zinc-600 dark:text-zinc-400">Not comparable</span>
-                          <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                            {metrics.reason}
-                          </span>
-                        </>
-                      )}
-                    </td>
-                    <td className="px-2 py-3 whitespace-nowrap">
-                      {formatDate(promo.lastVerifiedAt)}
-                    </td>
-                    <td className="px-2 py-3">
-                      {promo.sourceUrl ? (
-                        <a
-                          href={promo.sourceUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline underline-offset-2"
-                        >
-                          Official source
-                        </a>
-                      ) : (
-                        <span className="text-zinc-600 dark:text-zinc-400">No source link</span>
-                      )}
-                    </td>
-                  </tr>
+              <tbody className="block md:table-row-group">
+                {promos.map((entry) => (
+                  <PromoRow key={entry.id} entry={entry} />
                 ))}
               </tbody>
             </table>
@@ -343,9 +442,11 @@ export default async function HomePage({
         <p className="mt-2 max-w-3xl">
           Value = (all-access GB ÷ price in pesos) × 100, shown as GB per ₱100. When a provider
           splits its allowance, only the all-access part is compared so app-specific or 5G bonus
-          data does not inflate the score. Unlimited promos and promos with unknown data or validity
-          are listed but not scored. Coverage and speed are not part of the score because no
-          reliable data source has been agreed yet.
+          data does not inflate the score. Promos that never expire are scored the same way (validity
+          does not enter the formula) but have no per-day figures. Unlimited promos and promos with
+          unknown data or validity are listed but not scored. Coverage and speed are not part
+          of the score because no reliable data source has been agreed yet, so the top promo is not
+          the &ldquo;best&rdquo; overall, only the most data per peso.
         </p>
       </section>
     </main>
