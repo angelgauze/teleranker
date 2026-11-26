@@ -1,14 +1,15 @@
 import type { PromoOverride } from "../schema/override";
 import type { PromoCompatibility, PromoInput, PromoOrigin } from "../schema/promo";
 import type { RunReport } from "../collect/types";
-import type {
-  OverrideCandidate,
-  OverrideImportSummary,
-  OverrideSet,
-  PromoRepository,
-  ProviderSeed,
-  PublishSet,
-  PublishSummary,
+import {
+  originClash,
+  type OverrideCandidate,
+  type OverrideImportSummary,
+  type OverrideSet,
+  type PromoRepository,
+  type ProviderSeed,
+  type PublishSet,
+  type PublishSummary,
 } from "./repository";
 
 export interface StoredPromo {
@@ -25,8 +26,8 @@ export interface StoredOverride {
  * In-memory repository used by tests and local dry runs.
  *
  * Mirrors PrismaPromoRepository: every promo ever published is kept with its
- * status, promos missing from a newer set become UNAVAILABLE instead of being
- * removed, and counts only include ACTIVE promos.
+ * status, promos missing from a newer set of the same origin become
+ * UNAVAILABLE instead of being removed, and counts only include ACTIVE promos.
  */
 export class MemoryPromoRepository implements PromoRepository {
   readonly providers = new Map<string, ProviderSeed>();
@@ -67,11 +68,17 @@ export class MemoryPromoRepository implements PromoRepository {
     }
 
     const stored = this.promos.get(providerId) ?? new Map<string, StoredPromo>();
+    const taken = [...keys].filter((key) => {
+      const entry = stored.get(key);
+      return entry !== undefined && entry.origin !== origin;
+    });
+    if (taken.length > 0) throw new Error(originClash(providerId, taken));
     this.promos.set(providerId, stored);
 
+    // Only this origin's set is replaced; the other origin's promos stay listed.
     let markedUnavailable = 0;
     for (const [key, entry] of stored) {
-      if (entry.promo.status === "ACTIVE" && !keys.has(key)) {
+      if (entry.origin === origin && entry.promo.status === "ACTIVE" && !keys.has(key)) {
         stored.set(key, { ...entry, promo: { ...entry.promo, status: "UNAVAILABLE" } });
         markedUnavailable += 1;
       }

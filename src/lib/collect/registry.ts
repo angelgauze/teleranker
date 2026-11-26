@@ -46,7 +46,7 @@ export const PROVIDERS: ProviderConfig[] = [
         "/prepaid/promos was not disallowed by robots.txt on 2026-11-19. Since 2026-11-20 robots.txt answers HTTP 403 with a Cloudflare bot challenge, so runs fail safely and alert.",
       termsReviewed: false,
       decision:
-        "Promo cards are server-rendered HTML and the path is permitted by robots.txt. Collection is rate-limited and identifies itself. Kept automated (team decision, 2026-11-20); while runs are blocked, a manual import (scripts/import-promos.ts) is the fallback, and the next successful run supersedes it.",
+        "Promo cards are server-rendered HTML and the path is permitted by robots.txt. Collection is rate-limited and identifies itself. Kept automated (team decision, 2026-11-20); hand-entered promos from the manual import (scripts/import-promos.ts) are listed beside whatever a run collects, so blocked runs leave them in place.",
     },
   },
   {

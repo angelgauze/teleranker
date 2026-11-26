@@ -10,10 +10,12 @@ import { publishSheet, validateSheet } from "../src/lib/manual/import";
  *
  *   pnpm import:promos --file=<path.csv>                 # validate only (no database)
  *   pnpm import:promos --file=<path.csv> --publish       # also publish to Postgres
- *   ... --publish --replace-collected                    # allow replacing scraped promos
  *
  * The CSV is an export of the team's "Promos" sheet. Keep it outside this
  * repository: no provider data is committed (AGENTS.md section 7).
+ *
+ * Only hand-entered promos are replaced; collected promos stay listed beside
+ * them (src/lib/manual/import.ts).
  */
 
 const args = process.argv.slice(2);
@@ -71,7 +73,6 @@ async function main(): Promise<number> {
         plans: result.providers,
         repository: new PrismaPromoRepository(prisma),
         knownProviders,
-        replaceCollected: hasFlag("replace-collected"),
       });
     } catch (error) {
       // publishSheet writes every provider in one transaction, so a failure
@@ -82,18 +83,12 @@ async function main(): Promise<number> {
       return 1;
     }
 
-    let exitCode = 0;
     for (const outcome of outcomes) {
-      if (outcome.status === "skipped") {
-        exitCode = 1;
-        console.warn(`${outcome.providerId.padEnd(8)} SKIPPED    ${outcome.reason}`);
-      } else {
-        console.log(
-          `${outcome.providerId.padEnd(8)} PUBLISHED  published=${outcome.published} markedUnavailable=${outcome.markedUnavailable}`,
-        );
-      }
+      console.log(
+        `${outcome.providerId.padEnd(8)} PUBLISHED  published=${outcome.published} markedUnavailable=${outcome.markedUnavailable}`,
+      );
     }
-    return exitCode;
+    return 0;
   } finally {
     await prisma.$disconnect();
   }

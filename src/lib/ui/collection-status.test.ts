@@ -27,7 +27,7 @@ describe("describeCollectionStatus", () => {
     });
     expect(status.tone).toBe("paused");
     expect(status.detail).toBe(
-      "Automatic checks have not completed since Nov 20, 2026. Showing details entered by hand from Globe's promo page, last checked Nov 19, 2026.",
+      "Automatic checks have not completed since Nov 20, 2026. Showing details entered manually from Globe's promo page, last checked Nov 19, 2026.",
     );
   });
 
@@ -75,6 +75,31 @@ describe("describeCollectionStatus", () => {
     );
   });
 
+  it("mentions hand-entered promos listed beside collected ones", () => {
+    const healthy = describeCollectionStatus({
+      providerName: "Globe",
+      runs: [ok(26)],
+      origin: "MANUAL",
+      lastVerifiedAt: at(26),
+      handEntered: { lastVerifiedAt: at(17) },
+    });
+    expect(healthy).toMatchObject({ tone: "ok", label: "Updated automatically" });
+    expect(healthy.detail).toBe(
+      "Last checked Nov 26, 2026. Promos the automatic check does not cover are entered manually from Globe's promo page, last checked Nov 17, 2026.",
+    );
+
+    const paused = describeCollectionStatus({
+      providerName: "DITO",
+      runs: [failed(25), ok(20)],
+      origin: "MANUAL",
+      lastVerifiedAt: at(26),
+      handEntered: { lastVerifiedAt: at(26) },
+    });
+    expect(paused.detail).toBe(
+      "Automatic checks have not completed since Nov 25, 2026. Showing the details last verified Nov 26, 2026. Promos the automatic check does not cover are entered manually from DITO's promo page, last checked Nov 26, 2026.",
+    );
+  });
+
   it("reports hand-entered providers", () => {
     const status = describeCollectionStatus({
       providerName: "Smart",
@@ -82,7 +107,7 @@ describe("describeCollectionStatus", () => {
       origin: "MANUAL",
       lastVerifiedAt: at(18),
     });
-    expect(status).toMatchObject({ tone: "manual", label: "Entered by hand" });
+    expect(status).toMatchObject({ tone: "manual", label: "Entered manually" });
     expect(status.detail).toBe("From Smart's promo page, last checked Nov 18, 2026.");
   });
 

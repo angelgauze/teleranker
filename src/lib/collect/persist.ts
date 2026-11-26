@@ -100,18 +100,14 @@ export async function persistRun(options: PersistRunOptions): Promise<RunReport>
 }
 
 /**
- * What the drop guard compares a run against.
- *
- * Normally the provider's last successful published run, so a manual import
- * cannot block a recovered collector. When no run has ever published (Globe
- * while its pages are blocked), the active hand-entered set is the baseline
- * instead, so a broken first run cannot replace a full manual catalogue with
- * a handful of promos. An administrator can accept a genuinely smaller set
- * with `--accept-smaller-set`.
+ * What the drop guard compares a run against: the provider's last successful
+ * published run (0 when none has published yet). A run only replaces
+ * collected promos, never the hand-entered ones listed beside them, so the
+ * hand-entered set is not a baseline. An administrator can accept a
+ * genuinely smaller set with `--accept-smaller-set`.
  */
 export async function guardBaseline(repository: PromoRepository, providerId: string): Promise<number> {
-  const lastRun = await repository.lastPublishedRunCount(providerId);
-  return lastRun > 0 ? lastRun : repository.countPublished(providerId, "MANUAL");
+  return repository.lastPublishedRunCount(providerId);
 }
 
 export interface RunProviderOptions {

@@ -24,6 +24,11 @@ export interface CollectionStatusInput {
   origin: PromoOrigin | null;
   /** Most recent verification date among the provider's listed promos. */
   lastVerifiedAt?: Date;
+  /**
+   * Set when hand-entered promos are listed beside collected ones (an
+   * automated provider with a support sheet), with their latest check date.
+   */
+  handEntered?: { lastVerifiedAt?: Date };
 }
 
 export interface CollectionStatus {
@@ -36,14 +41,19 @@ export interface CollectionStatus {
 const succeeded = (run: RunSummary) => run.status === "SUCCEEDED" && run.published;
 
 export function describeCollectionStatus(input: CollectionStatusInput): CollectionStatus {
-  const { providerName, runs, origin, lastVerifiedAt } = input;
+  const { providerName, runs, origin, lastVerifiedAt, handEntered } = input;
   const latest = runs[0];
+  const byHand = handEntered
+    ? ` Promos the automatic check does not cover are entered manually from ${providerName}'s promo page${
+        handEntered.lastVerifiedAt ? `, last checked ${formatDate(handEntered.lastVerifiedAt)}` : ""
+      }.`
+    : "";
 
   if (latest && succeeded(latest)) {
     return {
       tone: "ok",
       label: "Updated automatically",
-      detail: `Last checked ${formatDate(latest.startedAt)}.`,
+      detail: `Last checked ${formatDate(latest.startedAt)}.${byHand}`,
     };
   }
 
@@ -56,7 +66,7 @@ export function describeCollectionStatus(input: CollectionStatusInput): Collecti
         lastVerifiedAt
           ? `Showing the details last verified ${formatDate(lastVerifiedAt)}.`
           : "No verified details are available yet."
-      }`,
+      }${byHand}`,
     };
   }
 
@@ -69,9 +79,9 @@ export function describeCollectionStatus(input: CollectionStatusInput): Collecti
 
     const showing = !lastVerifiedAt
       ? "No verified details are available yet."
-      : origin === "MANUAL"
-        ? `Showing details entered by hand from ${providerName}'s promo page, last checked ${formatDate(lastVerifiedAt)}.`
-        : `Showing the details last verified ${formatDate(lastVerifiedAt)}.`;
+      : origin === "MANUAL" && !handEntered
+        ? `Showing details entered manually from ${providerName}'s promo page, last checked ${formatDate(lastVerifiedAt)}.`
+        : `Showing the details last verified ${formatDate(lastVerifiedAt)}.${byHand}`;
 
     return {
       tone: "paused",
@@ -83,7 +93,7 @@ export function describeCollectionStatus(input: CollectionStatusInput): Collecti
   if (origin || lastVerifiedAt) {
     return {
       tone: "manual",
-      label: "Entered by hand",
+      label: "Entered manually",
       detail: `From ${providerName}'s promo page${
         lastVerifiedAt ? `, last checked ${formatDate(lastVerifiedAt)}` : ""
       }.`,

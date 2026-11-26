@@ -255,7 +255,7 @@ describe("drop guard against the last published run", () => {
       published: true,
       rejections: [],
     });
-    // ...then a manual import replaced them with 36 promos.
+    // ...and 36 hand-entered promos are listed beside them.
     await repository.publishPromos(
       "alpha",
       Array.from({ length: 36 }, (_, index) => ({ ...promo, externalKey: `manual-${index}` })),
@@ -279,7 +279,7 @@ describe("drop guard against the last published run", () => {
     expect(await repository.lastPublishedRunCount("other")).toBe(0);
   });
 
-  it("blocks a broken run after a manual import instead of replacing it", async () => {
+  it("blocks a broken run, and the hand-entered promos stay listed", async () => {
     const repository = await repositoryWithHistory();
     const { report } = await run(repository, 1);
 
@@ -287,17 +287,33 @@ describe("drop guard against the last published run", () => {
     expect(await repository.countPublished("alpha", "MANUAL")).toBe(36);
   });
 
-  it("lets a recovered run supersede the larger manual set", async () => {
+  it("publishes a recovered run beside the hand-entered promos", async () => {
     const repository = await repositoryWithHistory();
     const { report } = await run(repository, 7);
 
     expect(report.published).toBe(true);
     expect(await repository.countPublished("alpha", "COLLECTED")).toBe(7);
-    expect(await repository.countPublished("alpha", "MANUAL")).toBe(0);
+    expect(await repository.countPublished("alpha", "MANUAL")).toBe(36);
   });
 });
 
-describe("drop guard baseline without a published run", () => {
+/** Records an earlier successful run that published `count` promos. */
+async function withPublishedRun(repository: MemoryPromoRepository, count: number) {
+  await repository.recordRun({
+    providerId: "alpha",
+    startedAt: new Date("2026-11-13T00:00:00Z"),
+    completedAt: new Date("2026-11-13T00:00:05Z"),
+    status: "SUCCEEDED",
+    recordsCollected: count,
+    recordsAccepted: count,
+    recordsRejected: 0,
+    published: true,
+    rejections: [],
+  });
+  return repository;
+}
+
+describe("drop guard baseline", () => {
   async function manualOnly(count: number) {
     const repository = new MemoryPromoRepository();
     await repository.publishPromos(
@@ -321,31 +337,31 @@ describe("drop guard baseline without a published run", () => {
     return { ...result, alerts };
   }
 
-  it("falls back to the hand-entered set when no run has published", async () => {
-    expect(await guardBaseline(await manualOnly(36), "alpha")).toBe(36);
+  it("is the last published run only, never the hand-entered set", async () => {
+    expect(await guardBaseline(await manualOnly(36), "alpha")).toBe(0);
+    expect(await guardBaseline(await withPublishedRun(await manualOnly(36), 7), "alpha")).toBe(7);
     expect(await guardBaseline(new MemoryPromoRepository(), "alpha")).toBe(0);
   });
 
-  it("holds back a first run that would shrink a manual catalogue", async () => {
+  it("publishes a first run beside a larger hand-entered set", async () => {
     const repository = await manualOnly(36);
+    const { report } = await run(repository, 3);
+
+    expect(report.published).toBe(true);
+    expect(await repository.countPublished("alpha", "COLLECTED")).toBe(3);
+    expect(await repository.countPublished("alpha", "MANUAL")).toBe(36);
+  });
+
+  it("holds back a run that shrinks the last published run", async () => {
+    const repository = await withPublishedRun(new MemoryPromoRepository(), 36);
     const { report, reason } = await run(repository, 3);
 
     expect(report.published).toBe(false);
     expect(reason).toMatch(/dropped to 8% of the published set \(3 of 36\)/);
-    expect(await repository.countPublished("alpha", "MANUAL")).toBe(36);
-  });
-
-  it("publishes a first run of similar size over the manual set", async () => {
-    const repository = await manualOnly(36);
-    const { report } = await run(repository, 20);
-
-    expect(report.published).toBe(true);
-    expect(await repository.countPublished("alpha", "COLLECTED")).toBe(20);
-    expect(await repository.countPublished("alpha", "MANUAL")).toBe(0);
   });
 
   it("publishes a smaller set when an administrator accepts it, and logs the override", async () => {
-    const repository = await manualOnly(36);
+    const repository = await withPublishedRun(new MemoryPromoRepository(), 36);
     const { report, alerts } = await run(repository, 3, true);
 
     expect(report.published).toBe(true);
@@ -442,13 +458,7 @@ describe("failed publish reporting", () => {
         throw databaseUnreachable();
       }
     }
-    const repository = new PublishFailsRepository();
-    await MemoryPromoRepository.prototype.publishPromos.call(
-      repository,
-      "alpha",
-      Array.from({ length: 36 }, (_, index) => ({ ...promo, externalKey: `manual-${index}` })),
-      "MANUAL",
-    );
+    const repository = await withPublishedRun(new PublishFailsRepository(), 36);
     const alerts = createMemoryAlertSink();
 
     const { report } = await runProviderSafely({

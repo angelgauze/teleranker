@@ -113,7 +113,7 @@ describe("publishSheet", () => {
       knownProviders: providers,
     });
 
-    expect(outcomes.map((outcome) => outcome.status)).toEqual(["published", "published"]);
+    expect(outcomes.map((outcome) => outcome.providerId)).toEqual(["alpha", "beta"]);
     expect(await repository.countPublished("alpha", "MANUAL")).toBe(1);
     expect(await repository.countPublished("alpha", "COLLECTED")).toBe(0);
     expect(repository.providers.has("beta")).toBe(true);
@@ -134,36 +134,34 @@ describe("publishSheet", () => {
     expect(outcome).toMatchObject({ published: 1, markedUnavailable: 1 });
   });
 
-  it("does not replace collector-published promos unless asked", async () => {
+  it("publishes beside collector-published promos without touching them", async () => {
     const repository = new MemoryPromoRepository();
     await repository.publishPromos("alpha", [collectedPromo("scraped-1")], "COLLECTED");
-    const plans = plansOf(csv(row("a1", "alpha")));
 
-    const [skipped] = await publishSheet({ plans, repository, knownProviders: providers });
-    expect(skipped.status).toBe("skipped");
-    expect(await repository.countPublished("alpha", "COLLECTED")).toBe(1);
-
-    const [replaced] = await publishSheet({
-      plans,
+    const [outcome] = await publishSheet({
+      plans: plansOf(csv(row("a1", "alpha"))),
       repository,
       knownProviders: providers,
-      replaceCollected: true,
     });
-    expect(replaced).toMatchObject({ status: "published", published: 1, markedUnavailable: 1 });
+    expect(outcome).toMatchObject({ providerId: "alpha", published: 1, markedUnavailable: 0 });
     expect(await repository.countPublished("alpha", "MANUAL")).toBe(1);
+    expect(await repository.countPublished("alpha", "COLLECTED")).toBe(1);
   });
 
-  it("lets a recovered collector run supersede a larger manual set", async () => {
+  it("keeps the hand-entered promos when a collector run publishes", async () => {
     const repository = new MemoryPromoRepository();
     const manualRows = Array.from({ length: 10 }, (_, index) => row(`m${index}`, "alpha"));
     await publishSheet({ plans: plansOf(csv(...manualRows)), repository, knownProviders: providers });
 
-    // The drop guard only compares with collector-published promos, so a
-    // 3-promo run is not blocked by the 10-promo manual set.
-    const previousCollected = await repository.countPublished("alpha", "COLLECTED");
+    // The drop guard only compares with earlier runs, so a 3-promo first run
+    // is not held back by the 10 hand-entered promos.
     expect(
-      evaluatePublish({ collected: 3, accepted: 3, rejected: 0, previousPublishedCount: previousCollected })
-        .publish,
+      evaluatePublish({
+        collected: 3,
+        accepted: 3,
+        rejected: 0,
+        previousPublishedCount: await repository.lastPublishedRunCount("alpha"),
+      }).publish,
     ).toBe(true);
 
     const summary = await repository.publishPromos(
@@ -171,7 +169,19 @@ describe("publishSheet", () => {
       ["s1", "s2", "s3"].map(collectedPromo),
       "COLLECTED",
     );
-    expect(summary).toEqual({ published: 3, markedUnavailable: 10 });
+    expect(summary).toEqual({ published: 3, markedUnavailable: 0 });
+    expect(await repository.countPublished("alpha", "MANUAL")).toBe(10);
+    expect(await repository.countPublished("alpha", "COLLECTED")).toBe(3);
+  });
+
+  it("refuses a sheet promo ID the collector already uses, changing nothing", async () => {
+    const repository = new MemoryPromoRepository();
+    await repository.publishPromos("alpha", [collectedPromo("a1")], "COLLECTED");
+
+    await expect(
+      publishSheet({ plans: plansOf(csv(row("a1", "alpha"))), repository, knownProviders: providers }),
+    ).rejects.toThrow(/already used by the other source \(a1\)/);
+    expect(repository.get("alpha", "a1")?.origin).toBe("COLLECTED");
     expect(await repository.countPublished("alpha", "MANUAL")).toBe(0);
   });
 
@@ -221,7 +231,7 @@ describe("publishSheet atomicity", () => {
     expect(repository.providers.has("beta")).toBe(false);
   });
 
-  it("returns outcomes in sheet order with skipped providers included", async () => {
+  it("returns outcomes in sheet order", async () => {
     const repository = new MemoryPromoRepository();
     await repository.publishPromos("alpha", [collectedPromo("scraped-1")], "COLLECTED");
 
@@ -230,9 +240,9 @@ describe("publishSheet atomicity", () => {
       repository,
       knownProviders: providers,
     });
-    expect(outcomes.map((outcome) => [outcome.providerId, outcome.status])).toEqual([
-      ["alpha", "skipped"],
-      ["beta", "published"],
+    expect(outcomes.map((outcome) => [outcome.providerId, outcome.published])).toEqual([
+      ["alpha", 1],
+      ["beta", 1],
     ]);
   });
 });

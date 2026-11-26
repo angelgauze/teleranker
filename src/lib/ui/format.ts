@@ -1,4 +1,4 @@
-import type { PromoCompatibility, PromoInput, PromoStatus } from "../schema/promo";
+import type { PromoCompatibility, PromoInput, PromoOrigin, PromoStatus } from "../schema/promo";
 
 /**
  * Display rule for every price: peso sign, thousands grouped with commas, and
@@ -47,6 +47,12 @@ export const STATUS_LABELS: Record<PromoStatus, string> = {
   ACTIVE: "Active",
   OUTDATED: "Outdated",
   UNAVAILABLE: "No longer offered",
+};
+
+/** How a listed promo was last checked; collected and hand-entered promos are listed together. */
+export const ORIGIN_LABELS: Record<PromoOrigin, string> = {
+  COLLECTED: "Checked automatically",
+  MANUAL: "Checked manually",
 };
 
 /** Status as a text label, so it never depends on color alone. */

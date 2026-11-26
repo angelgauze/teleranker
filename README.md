@@ -11,8 +11,8 @@ DITO, TNT and GOMO; the provider list is configurable). Requirements live in
 | Promo listing with filters and sorting | Implemented |
 | Value ranking (GB per ₱100) | Implemented ([`docs/ranking.md`](./docs/ranking.md)) |
 | Compare view (up to two promos) | Implemented |
-| DITO collector | Working; run by hand until the weekly job has a host |
-| Globe collector | Implemented, but the site currently blocks it; manual import is the fallback |
+| DITO collector | Working; run manually until the weekly job has a host |
+| Globe collector | Implemented, but the site currently blocks it; hand-entered promos are listed beside collected ones |
 | Smart, TNT, GOMO | Manual import only ([`docs/providers.md`](./docs/providers.md)) |
 | Safe publishing, run logs, alerts | Implemented (alerts go to the console until a channel is chosen) |
 | Reviews, admin panel, provider pages, site navigation | Not built yet |
@@ -63,7 +63,7 @@ pnpm dev                                           # http://localhost:3000
 | `pnpm scrape --provider=<id> --live [--publish]` | Collect promos (`dito`, `globe` or `all`) |
 | `pnpm scrape --provider=<id> --fixture=<path>` | Parse a saved page offline |
 | `pnpm scrape ... --accept-smaller-set` | Publish a held-back run after checking the provider's page ([maintenance](./docs/providers.md#maintenance-runs-on-hold-and-errors)) |
-| `pnpm import:promos --file=<csv> [--publish] [--replace-collected]` | Validate (and publish) the hand-entered promo sheet ([manual import](./docs/providers.md#manual-import)) |
+| `pnpm import:promos --file=<csv> [--publish]` | Validate (and publish) the hand-entered promo sheet, listed beside collected promos ([manual import](./docs/providers.md#manual-import)) |
 | `pnpm overrides:template --provider=<id> --out=<csv>` | Export the override sheet for a collected provider, pre-filled ([checked values](./docs/providers.md#checked-values-on-collected-promos-overrides)) |
 | `pnpm import:overrides --file=<csv> [--publish]` | Validate (and save) checked 4G/5G values for collected promos |
 

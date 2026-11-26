@@ -4,19 +4,16 @@ import { parseCsvRecords } from "./csv";
 import { mapSheetRow, REQUIRED_COLUMNS } from "./promo-sheet";
 
 /**
- * Manual promo import: the fallback for providers that cannot be collected
- * automatically (Smart, TNT, GOMO) and for automated providers whose runs are
- * blocked (Globe while its bot challenge is in place).
+ * Manual promo import: the only source for providers that cannot be
+ * collected automatically (Smart, TNT, GOMO), and the support set for
+ * automated providers (DITO, Globe), listed beside their collected promos.
  *
  * The whole file is validated first and nothing is written if any row fails,
  * so a half-corrected sheet can never replace published data. Every provider
- * in the file then has its active set replaced (origin MANUAL) in a single
- * transaction: if the database fails part-way, no provider changes. Promos
- * that are no longer in the sheet become UNAVAILABLE rather than deleted.
- *
- * A provider that already has collector-published promos is skipped unless
- * `replaceCollected` is set, so a manual sheet never silently overwrites
- * fresher scraped data.
+ * in the file then has its hand-entered set (origin MANUAL) replaced in a
+ * single transaction: if the database fails part-way, no provider changes.
+ * Hand-entered promos no longer in the sheet become UNAVAILABLE rather than
+ * deleted. Collected promos are never touched.
  */
 
 export interface RowError {
@@ -110,53 +107,22 @@ export function validateSheet(
 
 export interface ProviderOutcome {
   providerId: string;
-  status: "published" | "skipped";
   published: number;
   markedUnavailable: number;
-  reason?: string;
 }
 
 export async function publishSheet(options: {
   plans: ProviderPlan[];
   repository: PromoRepository;
   knownProviders: ReadonlyMap<string, ProviderSeed>;
-  replaceCollected?: boolean;
 }): Promise<ProviderOutcome[]> {
-  const skipped: ProviderOutcome[] = [];
-  const toPublish: ProviderPlan[] = [];
-
-  // Decide everything first (reads only), then write once.
-  for (const plan of options.plans) {
-    const collected = await options.repository.countPublished(plan.providerId, "COLLECTED");
-    if (collected > 0 && !options.replaceCollected) {
-      skipped.push({
-        providerId: plan.providerId,
-        status: "skipped",
-        published: 0,
-        markedUnavailable: 0,
-        reason: `${collected} collector-published promos are active; pass --replace-collected to replace them`,
-      });
-    } else {
-      toPublish.push(plan);
-    }
-  }
-
+  if (options.plans.length === 0) return [];
   // One transaction for every provider: if anything fails, nothing changes.
-  const published = toPublish.length
-    ? await options.repository.publishMany(
-        toPublish.map((plan) => ({
-          provider: options.knownProviders.get(plan.providerId)!,
-          promos: plan.promos,
-          origin: "MANUAL" as const,
-        })),
-      )
-    : [];
-
-  const byId = new Map<string, ProviderOutcome>([
-    ...skipped.map((outcome) => [outcome.providerId, outcome] as const),
-    ...published.map(
-      (summary) => [summary.providerId, { ...summary, status: "published" as const }] as const,
-    ),
-  ]);
-  return options.plans.map((plan) => byId.get(plan.providerId)!);
+  return options.repository.publishMany(
+    options.plans.map((plan) => ({
+      provider: options.knownProviders.get(plan.providerId)!,
+      promos: plan.promos,
+      origin: "MANUAL" as const,
+    })),
+  );
 }
