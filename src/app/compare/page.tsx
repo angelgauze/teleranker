@@ -82,7 +82,7 @@ export default async function ComparePage({
   if (ids.length === 0) {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Compare promos</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Compare promos</h1>
         <p className="mt-3 text-zinc-700 dark:text-zinc-300">
           Select one or two promos on the{" "}
           <Link href="/" className="underline underline-offset-2">
@@ -97,7 +97,7 @@ export default async function ComparePage({
   if (ids.length > 2) {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Select at most two promos</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Select at most two promos</h1>
         <p className="mt-3 text-zinc-700 dark:text-zinc-300">
           You selected {ids.length}. Please return to the listing and select no more than two.
         </p>
@@ -116,7 +116,7 @@ export default async function ComparePage({
   if (databaseUnavailable) {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Comparison unavailable</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Comparison unavailable</h1>
         <p className="mt-3 text-zinc-700 dark:text-zinc-300">
           The promo database cannot be reached. Try again once the database is configured.
         </p>
@@ -131,7 +131,7 @@ export default async function ComparePage({
           ← Back to the listing
         </Link>
       </p>
-      <h1 className="mt-4 text-2xl font-semibold tracking-tight">Compare promos</h1>
+      <h1 className="mt-4 text-3xl font-semibold tracking-tight">Compare promos</h1>
 
       {promos.length > 0 && promos.length < ids.length ? (
         <p

@@ -3,16 +3,16 @@ import { connection } from "next/server";
 
 // The listing depends on live database state, so it cannot be prerendered.
 export const instant = false;
-import { CollectionStatusList } from "./_components/collection-status";
+import { DatabaseNotice } from "./_components/database-notice";
 import { ProviderBadge } from "./_components/provider-badge";
 import { SourceLink } from "./_components/source-link";
 import {
-  loadCollectionStatuses,
   loadListing,
   type PromoFilter,
   type PublishedPromo,
 } from "@/lib/db/promos";
 import { OUTDATED_AFTER_DAYS } from "@/lib/freshness";
+import { PAGE_SIZE, parseShowCount, showMoreHref } from "@/lib/ui/paging";
 import { parseBudgetRange, type BudgetRange } from "@/lib/money";
 import type { SortKey } from "@/lib/ranking/value";
 import type { PromoCompatibility } from "@/lib/schema/promo";
@@ -20,9 +20,8 @@ import {
   COMPATIBILITY_LABELS,
   COMPATIBILITY_NOTES,
   formatCalls,
+  formatChecked,
   formatDataAllocation,
-  formatDate,
-  ORIGIN_LABELS,
   formatGb,
   formatPerDay,
   formatPeso,
@@ -52,6 +51,13 @@ const MUTED = "text-zinc-500 dark:text-zinc-400";
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+/** Changes whenever any filter in the address changes, so the form shows the current filters. */
+function filterFormKey(params: Record<string, string | string[] | undefined>): string {
+  return ["provider", "min", "max", "compatibility", "sort", "inactive"]
+    .map((name) => `${name}=${first(params[name]) ?? ""}`)
+    .join("&");
 }
 
 function parseFilter(params: Record<string, string | string[] | undefined>): {
@@ -86,9 +92,10 @@ function parseFilter(params: Record<string, string | string[] | undefined>): {
 }
 
 /**
- * One cell. On phones the table collapses into cards, so each cell shows its
- * own label; from the md breakpoint up the column header takes over and the
- * inline label is hidden (display: none also removes it for screen readers).
+ * One cell. Below the xl breakpoint the table collapses into cards (two columns
+ * from md), so each cell shows its own label; from xl up the column header
+ * takes over and the inline label is hidden (display: none also removes it for
+ * screen readers).
  */
 function Cell({
   label,
@@ -100,8 +107,8 @@ function Cell({
   className?: string;
 }) {
   return (
-    <td className={`flex gap-3 px-2 py-1 md:table-cell md:py-3 ${className}`}>
-      <span className={`w-28 shrink-0 text-xs font-medium md:hidden ${MUTED}`}>{label}</span>
+    <td className={`flex gap-3 px-2 py-1 xl:table-cell xl:py-3 ${className}`}>
+      <span className={`w-28 shrink-0 text-xs font-medium xl:hidden ${MUTED}`}>{label}</span>
       <span className="min-w-0">{children}</span>
     </td>
   );
@@ -113,23 +120,38 @@ function PromoRow({ entry }: { entry: PublishedPromo }) {
 
   return (
     <tr
-      className={`mb-3 block rounded-lg border border-zinc-200 py-2 align-top md:mb-0 md:table-row md:rounded-none md:border-0 md:border-b md:py-0 dark:border-zinc-800 ${
+      className={`mb-3 block rounded-lg border border-zinc-200 py-2 align-top md:mb-0 xl:table-row xl:rounded-none xl:border-0 xl:border-b xl:py-0 dark:border-zinc-800 ${
         inactive ? "bg-zinc-50 dark:bg-zinc-900/60" : ""
       }`}
     >
-      <td className="float-right px-3 py-1 md:float-none md:table-cell md:px-2 md:py-3">
+      <td className="float-right px-3 py-1 xl:float-none xl:table-cell xl:px-2 xl:py-3">
         <input
           type="checkbox"
           name="id"
           value={id}
           aria-label={`Select ${promo.name} for comparison`}
-          className="size-5 md:size-4"
+          className="size-5 xl:size-4"
         />
       </td>
-      <th scope="row" className="block px-2 pt-1 pb-2 text-left font-medium md:table-cell md:py-3">
+      <th scope="row" className="block px-2 pt-1 pb-2 text-left font-medium xl:table-cell xl:py-3">
         {promo.name}
         <span className="mt-1 block">
-          <ProviderBadge name={providerName} />
+          <Link
+            href={`/providers/${promo.providerId}`}
+            aria-label={`${providerName} provider page`}
+            className="inline-block rounded focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
+            <ProviderBadge name={providerName} link />
+          </Link>
+        </span>
+        <span className={`mt-1 block text-xs font-normal ${MUTED}`}>
+          {formatChecked(promo.lastVerifiedAt, entry.origin)} ·{" "}
+          <SourceLink
+            compact
+            sourceUrl={promo.sourceUrl}
+            providerName={providerName}
+            providerPromoPageUrl={entry.providerPromoPageUrl}
+          />
         </span>
       </th>
       <Cell label="Status">
@@ -137,7 +159,7 @@ function PromoRow({ entry }: { entry: PublishedPromo }) {
           {formatStatus(promo.status)}
         </span>
       </Cell>
-      <Cell label="Price" className="md:whitespace-nowrap">
+      <Cell label="Price" className="xl:whitespace-nowrap">
         {formatPeso(promo.priceCentavos)}
       </Cell>
       <Cell label="Data">
@@ -150,10 +172,10 @@ function PromoRow({ entry }: { entry: PublishedPromo }) {
           </span>
         ) : null}
       </Cell>
-      <Cell label="Validity" className="md:whitespace-nowrap">
+      <Cell label="Validity" className="xl:whitespace-nowrap">
         {formatValidity(promo.validityValue, promo.validityUnit, promo.noExpiry)}
       </Cell>
-      <Cell label="4G/5G" className="md:whitespace-nowrap">
+      <Cell label="4G/5G" className="xl:whitespace-nowrap">
         {COMPATIBILITY_LABELS[promo.compatibility]}
         {COMPATIBILITY_NOTES[promo.compatibility] ? (
           <span className={`block max-w-40 whitespace-normal text-xs ${MUTED}`}>
@@ -182,17 +204,6 @@ function PromoRow({ entry }: { entry: PublishedPromo }) {
           </>
         )}
       </Cell>
-      <Cell label="Verified" className="md:whitespace-nowrap">
-        {formatDate(promo.lastVerifiedAt)}
-        <span className={`block text-xs ${MUTED}`}>{ORIGIN_LABELS[entry.origin]}</span>
-      </Cell>
-      <Cell label="Source">
-        <SourceLink
-          sourceUrl={promo.sourceUrl}
-          providerName={providerName}
-          providerPromoPageUrl={entry.providerPromoPageUrl}
-        />
-      </Cell>
     </tr>
   );
 }
@@ -206,14 +217,14 @@ export default async function HomePage({
 
   const params = await searchParams;
   const { filter, budget } = parseFilter(params);
-  const [{ promos, providers, databaseUnavailable }, statuses] = await Promise.all([
-    loadListing(filter),
-    loadCollectionStatuses(),
-  ]);
+  const { promos, providers, databaseUnavailable } = await loadListing(filter);
   const count = (status: string) => promos.filter(({ promo }) => promo.status === status).length;
   const activeCount = count("ACTIVE");
   const outdatedCount = count("OUTDATED");
   const unavailableCount = count("UNAVAILABLE");
+  // Filters and sorting already ran on every promo; this only limits how many are rendered.
+  const shown = Math.min(parseShowCount(first(params.show)), promos.length);
+  const visible = promos.slice(0, shown);
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
@@ -221,15 +232,20 @@ export default async function HomePage({
         <p className={`text-sm font-medium tracking-wide uppercase ${MUTED}`}>
           Telecom promo comparison · Philippines
         </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Compare mobile promos</h1>
-        <p className="mt-3 max-w-2xl text-zinc-700 dark:text-zinc-300">
-          Promos collected from provider pages or entered manually from them, with the date each
-          record was last verified. Value is ranked on all-access data per peso, not on price
-          alone.
-        </p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Mobile promos</h1>
+        <div className="mt-3 max-w-2xl space-y-1 text-zinc-700 dark:text-zinc-300">
+          <p>
+            Prepaid promos collected from provider pages or entered manually from them, each with the
+            date it was last verified.
+          </p>
+          <p>Value is ranked on all-access data per peso, not on price alone.</p>
+        </div>
       </header>
 
       <form
+        // Remount when the query changes: the fields are uncontrolled, so a link
+        // to "/?provider=dito" would otherwise keep the previous selections.
+        key={filterFormKey(params)}
         method="get"
         action="/"
         className="mt-6 grid gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 lg:grid-cols-5 dark:border-zinc-800 dark:bg-zinc-900"
@@ -318,6 +334,9 @@ export default async function HomePage({
               </option>
             ))}
           </select>
+          <a href="#how-value" className="text-xs underline underline-offset-2">
+            How is value calculated?
+          </a>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:col-span-2 lg:col-span-5">
@@ -357,20 +376,18 @@ export default async function HomePage({
         ) : null}
       </form>
 
-      {databaseUnavailable ? null : <CollectionStatusList statuses={statuses} />}
+      {databaseUnavailable ? null : (
+        <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
+          Where the data comes from:{" "}
+          <Link href="/providers" className="underline underline-offset-2">
+            see each provider&rsquo;s page
+          </Link>
+          .
+        </p>
+      )}
 
       {databaseUnavailable ? (
-        <section
-          role="status"
-          className="mt-8 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
-        >
-          <h2 className="font-semibold">Database not available</h2>
-          <p className="mt-1">
-            The promo database is not configured or cannot be reached. Set <code>DATABASE_URL</code>,
-            run <code>pnpm db:migrate</code>, then publish data with{" "}
-            <code>pnpm scrape --live --publish</code> or <code>pnpm import:promos --publish</code>.
-          </p>
-        </section>
+        <DatabaseNotice />
       ) : promos.length === 0 ? (
         <section
           role="status"
@@ -383,16 +400,21 @@ export default async function HomePage({
               ? ""
               : " Promos that are no longer offered are hidden unless you include them."}
           </p>
-          <p className="mt-1">
-            If nothing has been published yet, run a collection (
-            <code>pnpm scrape --provider=all --live --publish</code>) or a manual import (
-            <code>pnpm import:promos --file=&lt;csv&gt; --publish</code>).
-          </p>
+          <p className="mt-3">If nothing has been published yet, run one of these:</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>
+              a collection: <code>pnpm scrape --provider=all --live --publish</code>
+            </li>
+            <li>
+              a manual import: <code>pnpm import:promos --file=&lt;csv&gt; --publish</code>
+            </li>
+          </ul>
         </section>
       ) : (
         <form method="get" action="/compare" className="mt-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              {shown < promos.length ? `Showing ${shown} of ${promos.length} · ` : ""}
               {activeCount} current {activeCount === 1 ? "promo" : "promos"}
               {outdatedCount > 0
                 ? ` · ${outdatedCount} outdated (not re-checked in over ${OUTDATED_AFTER_DAYS} days), listed after`
@@ -410,13 +432,13 @@ export default async function HomePage({
             </button>
           </div>
 
-          <div className="mt-4 md:overflow-x-auto">
-            <table className="block w-full border-collapse text-sm md:table md:min-w-[72rem]">
+          <div className="mt-4 xl:overflow-x-auto">
+            <table className="block w-full border-collapse text-sm xl:table xl:min-w-[72rem]">
               <caption className="sr-only">
                 Published promos with status, price, data, validity, compatibility, calls and
                 texts, value, verification date and source
               </caption>
-              <thead className="hidden md:table-header-group">
+              <thead className="hidden xl:table-header-group">
                 <tr className="border-b border-zinc-300 text-left dark:border-zinc-700">
                   <th scope="col" className="w-10 px-2 py-2">
                     <span className="sr-only">Select for comparison</span>
@@ -429,43 +451,69 @@ export default async function HomePage({
                   <th scope="col" className="px-2 py-2">4G/5G</th>
                   <th scope="col" className="px-2 py-2">Calls / texts</th>
                   <th scope="col" className="px-2 py-2">Value</th>
-                  <th scope="col" className="px-2 py-2">Verified</th>
-                  <th scope="col" className="px-2 py-2">Source</th>
                 </tr>
               </thead>
-              <tbody className="block md:table-row-group">
-                {promos.map((entry) => (
+              <tbody className="block md:grid md:grid-cols-2 md:gap-3 xl:table-row-group">
+                {visible.map((entry) => (
                   <PromoRow key={entry.id} entry={entry} />
                 ))}
               </tbody>
             </table>
           </div>
+          {shown < promos.length ? (
+            <div className="mt-6 flex flex-col items-center gap-2">
+              <Link
+                href={showMoreHref(params, shown)}
+                scroll={false}
+                className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                Show {Math.min(PAGE_SIZE, promos.length - shown)} more
+              </Link>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Showing {shown} of {promos.length}
+              </p>
+            </div>
+          ) : null}
         </form>
       )}
 
       <section className="mt-10 border-t border-zinc-200 pt-6 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+        <h2
+          id="how-value"
+          className="scroll-mt-6 text-base font-semibold text-zinc-900 dark:text-zinc-100"
+        >
           How value is calculated
         </h2>
-        <p className="mt-2 max-w-3xl">
-          Value = (all-access GB ÷ price in pesos) × 100, shown as GB per ₱100. When a provider
-          splits its allowance, only the all-access part is compared so app-specific or 5G bonus
-          data does not inflate the score. Promos that never expire are scored the same way (validity
-          does not enter the formula) but have no per-day figures. Unlimited promos and promos with
-          unknown data or validity are listed but not scored. Coverage and speed are not part
-          of the score because no reliable data source has been agreed yet, so the top promo is not
-          the &ldquo;best&rdquo; overall, only the most data per peso.
+        <p className="mt-2 max-w-3xl font-medium text-zinc-800 dark:text-zinc-200">
+          Value = (all-access GB ÷ price in pesos) × 100, shown as GB per ₱100.
         </p>
+        <ul className="mt-2 max-w-3xl list-disc space-y-1 pl-5">
+          <li>
+            When a provider splits its allowance, only the all-access part counts, so app-specific
+            or 5G bonus data does not inflate the score.
+          </li>
+          <li>Promos that never expire are scored the same way, but have no per-day figures.</li>
+          <li>Unlimited promos and promos with unknown data or validity are listed but not scored.</li>
+          <li>
+            Coverage and speed are not part of the score yet, because no reliable source has been
+            agreed. The top promo has the most data per peso; it is not the &ldquo;best&rdquo;
+            overall.
+          </li>
+        </ul>
         <h2 className="mt-6 text-base font-semibold text-zinc-900 dark:text-zinc-100">
           About 4G and 5G
         </h2>
-        <p className="mt-2 max-w-3xl">
-          A &ldquo;5G only&rdquo; promo needs a 5G phone and 5G signal where you use it. 5G signal
-          can be patchy: coverage maps built from other users&rsquo; tests can show 5G in an area
-          while most connections there are still on 4G. Check the coverage where you use your phone
-          before choosing a 5G-only promo. Promos marked &ldquo;4G and 5G&rdquo; work on any 4G
-          (LTE) phone.
-        </p>
+        <ul className="mt-2 max-w-3xl list-disc space-y-1 pl-5">
+          <li>
+            &ldquo;5G only&rdquo; promos need a 5G phone and 5G signal where you use them.
+          </li>
+          <li>
+            5G signal can be patchy: coverage maps built from other users&rsquo; tests can show 5G
+            in an area where most connections are still on 4G. Check the coverage where you use
+            your phone before choosing a 5G-only promo.
+          </li>
+          <li>&ldquo;4G and 5G&rdquo; promos work on any 4G (LTE) phone.</li>
+        </ul>
       </section>
     </main>
   );

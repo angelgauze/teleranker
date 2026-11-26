@@ -1,4 +1,5 @@
-import type { Prisma } from "../../generated/prisma/client";
+import type { Prisma, PrismaClient } from "../../generated/prisma/client";
+import { summarizeProviderPromos, type ProviderSummary } from "../providers/summary";
 import { getPrismaClient } from "./client";
 import { describeError } from "./errors";
 import { effectiveStatus } from "../freshness";
@@ -129,68 +130,131 @@ export async function loadPromosByIds(ids: string[]): Promise<{
   }
 }
 
-export interface ProviderCollectionStatus {
-  providerId: string;
-  providerName: string;
-  status: CollectionStatus;
-}
-
 /** Recent runs considered when describing a provider's collection status. */
 const STATUS_RUN_WINDOW = 20;
 
-/**
- * Public collection status for every active provider. Returns an empty list
- * instead of throwing, so a status problem never breaks the listing.
- */
-export async function loadCollectionStatuses(): Promise<ProviderCollectionStatus[]> {
+/** One provider as its provider page shows it. */
+export interface ProviderOverview {
+  id: string;
+  name: string;
+  websiteUrl?: string;
+  promoPageUrl?: string;
+  status: CollectionStatus;
+  summary: ProviderSummary;
+}
+
+/** Every active provider, alphabetically. Never throws. */
+export async function loadProviderOverviews(
+  prisma?: PrismaClient,
+): Promise<{ providers: ProviderOverview[]; databaseUnavailable: boolean }> {
   try {
-    const prisma = getPrismaClient();
-    const [providers, listed] = await Promise.all([
-      prisma.provider.findMany({
-        where: { isActive: true },
-        orderBy: { name: "asc" },
-        select: {
-          id: true,
-          name: true,
-          scrapeRuns: {
-            orderBy: { startedAt: "desc" },
-            take: STATUS_RUN_WINDOW,
-            select: { status: true, published: true, startedAt: true },
-          },
-        },
-      }),
-      prisma.promo.groupBy({
-        by: ["providerId", "origin"],
-        where: { status: { in: ["ACTIVE", "OUTDATED"] } },
-        _count: { _all: true },
-        _max: { lastVerifiedAt: true },
-      }),
-    ]);
-
-    return providers.map((provider) => {
-      const groups = listed.filter((group) => group.providerId === provider.id);
-      const main = [...groups].sort((a, b) => b._count._all - a._count._all)[0];
-      const manual = groups.find((group) => group.origin === "MANUAL");
-      const bothSources = manual !== undefined && groups.some((group) => group.origin === "COLLECTED");
-      const lastVerifiedAt = groups
-        .map((group) => group._max.lastVerifiedAt)
-        .filter((date): date is Date => date !== null)
-        .sort((a, b) => b.getTime() - a.getTime())[0];
-
-      return {
-        providerId: provider.id,
-        providerName: provider.name,
-        status: describeCollectionStatus({
-          providerName: provider.name,
-          runs: provider.scrapeRuns,
-          origin: (main?.origin as PromoOrigin | undefined) ?? null,
-          lastVerifiedAt,
-          ...(bothSources ? { handEntered: { lastVerifiedAt: manual._max.lastVerifiedAt ?? undefined } } : {}),
-        }),
-      };
-    });
+    const providers = await readProviders(prisma ?? getPrismaClient());
+    return { providers, databaseUnavailable: false };
   } catch (error) {
-    logLoadError("Failed to load collection statuses", error);
-    return [];
+    logLoadError("Failed to load providers", error);
+    return { providers: [], databaseUnavailable: true };
   }
+}
+
+/** One active provider, or null when the id is unknown or inactive. Never throws. */
+export async function loadProviderOverview(
+  id: string,
+  prisma?: PrismaClient,
+): Promise<{ provider: ProviderOverview | null; databaseUnavailable: boolean }> {
+  try {
+    const [provider] = await readProviders(prisma ?? getPrismaClient(), id);
+    return { provider: provider ?? null, databaseUnavailable: false };
+  } catch (error) {
+    logLoadError("Failed to load provider", error);
+    return { provider: null, databaseUnavailable: true };
+  }
+}
+
+/**
+ * Active providers (optionally one) with their public collection status and a
+ * summary of their promos. Throws on database errors; the exported loaders
+ * turn that into `databaseUnavailable`.
+ */
+async function readProviders(prisma: PrismaClient, id?: string): Promise<ProviderOverview[]> {
+  const byProvider = id ? { providerId: id } : {};
+  const [providers, listed, rows] = await Promise.all([
+    prisma.provider.findMany({
+      where: { isActive: true, ...(id ? { id } : {}) },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        websiteUrl: true,
+        promoPageUrl: true,
+        scrapeRuns: {
+          orderBy: { startedAt: "desc" },
+          take: STATUS_RUN_WINDOW,
+          select: { status: true, published: true, startedAt: true },
+        },
+      },
+    }),
+    prisma.promo.groupBy({
+      by: ["providerId", "origin"],
+      where: { ...byProvider, status: { in: ["ACTIVE", "OUTDATED"] } },
+      _count: { _all: true },
+      _max: { lastVerifiedAt: true },
+    }),
+    prisma.promo.findMany({
+      where: { ...byProvider, status: { not: "UNAVAILABLE" } },
+      select: {
+        providerId: true,
+        name: true,
+        origin: true,
+        status: true,
+        priceCentavos: true,
+        compatibility: true,
+        lastVerifiedAt: true,
+      },
+    }),
+  ]);
+
+  const now = new Date();
+  return providers.map((provider) => {
+    const groups = listed.filter((group) => group.providerId === provider.id);
+    const main = [...groups].sort((a, b) => b._count._all - a._count._all)[0];
+    const manual = groups.find((group) => group.origin === "MANUAL");
+    const bothSources = manual !== undefined && groups.some((group) => group.origin === "COLLECTED");
+    const lastVerifiedAt = groups
+      .map((group) => group._max.lastVerifiedAt)
+      .filter((date): date is Date => date !== null)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+
+    return {
+      id: provider.id,
+      name: provider.name,
+      websiteUrl: provider.websiteUrl ?? undefined,
+      promoPageUrl: provider.promoPageUrl ?? undefined,
+      status: describeCollectionStatus({
+        providerName: provider.name,
+        runs: provider.scrapeRuns,
+        origin: (main?.origin as PromoOrigin | undefined) ?? null,
+        lastVerifiedAt,
+        ...(bothSources ? { handEntered: { lastVerifiedAt: manual._max.lastVerifiedAt ?? undefined } } : {}),
+      }),
+      // Count each promo once when both sources list it, like the listing.
+      summary: summarizeProviderPromos(
+        hideDuplicates(
+          rows
+            .filter((row) => row.providerId === provider.id)
+            .map((row) => ({
+              ...row,
+              origin: row.origin as PromoOrigin,
+              promo: {
+                providerId: row.providerId,
+                name: row.name,
+                priceCentavos: row.priceCentavos,
+                status: row.status,
+                lastVerifiedAt: row.lastVerifiedAt ?? undefined,
+              },
+            })),
+        ),
+        now,
+      ),
+    };
+  });
 }

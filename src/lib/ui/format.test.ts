@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROMO_ORIGINS, PROMO_STATUSES } from "../schema/promo";
-import { COMPATIBILITY_NOTES, formatCalls, formatDataAllocation, formatPerDay, formatStatus, sourceLinkFor, formatTexts, formatValidity, ORIGIN_LABELS, STATUS_LABELS } from "./format";
+import { COMPATIBILITY_NOTES, formatCalls, formatChecked, formatDataAllocation, formatPerDay, formatStatus, sourceLinkFor, formatTexts, formatValidity, ORIGIN_LABELS, STATUS_LABELS } from "./format";
 
 describe("formatStatus", () => {
   it("labels every status", () => {
@@ -97,5 +97,22 @@ describe("COMPATIBILITY_NOTES", () => {
 describe("ORIGIN_LABELS", () => {
   it("names how every origin was checked, in words", () => {
     for (const origin of PROMO_ORIGINS) expect(ORIGIN_LABELS[origin]).toMatch(/^Checked (automatically|manually)$/);
+  });
+});
+
+describe("formatChecked", () => {
+  it("shows the verification date in Manila time", () => {
+    expect(formatChecked(new Date("2026-11-18T16:30:00Z"))).toBe("Checked Nov 19, 2026");
+  });
+
+  it("says the check date is unknown instead of 'Checked Unknown'", () => {
+    expect(formatChecked(undefined)).toBe("Check date unknown");
+  });
+
+  it("says how the promo was checked when the source is known", () => {
+    const date = new Date("2026-11-25T16:30:00Z");
+    expect(formatChecked(date, "COLLECTED")).toBe("Checked automatically Nov 26, 2026");
+    expect(formatChecked(date, "MANUAL")).toBe("Checked manually Nov 26, 2026");
+    expect(formatChecked(undefined, "MANUAL")).toBe("Checked manually, date unknown");
   });
 });
