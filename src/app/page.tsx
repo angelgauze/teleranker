@@ -43,13 +43,19 @@ const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: "validity", label: "Longest validity first" },
 ];
 
+// Phone compatibility (CLAUDE.md): a 5G phone runs every verified promo, so the
+// useful questions are "does it work on my 4G phone?" and "which need 5G?".
 const COMPATIBILITY_OPTIONS: Array<{ value: "" | PromoCompatibility; label: string }> = [
-  { value: "", label: "Any compatibility" },
-  { value: "FOUR_G", label: "Works on 4G" },
-  { value: "FIVE_G", label: "Works on 5G" },
-  { value: "FOUR_G_AND_FIVE_G", label: "Works on 4G and 5G" },
-  { value: "UNKNOWN", label: "Not yet verified" },
+  { value: "", label: "Any phone" },
+  { value: "FOUR_G", label: "Works on a 4G phone" },
+  { value: "FIVE_G", label: "5G phone only" },
+  { value: "UNKNOWN", label: "Not verified yet" },
 ];
+
+/** Older addresses used "4G and 5G"; it meant the same as "Works on a 4G phone". */
+const LEGACY_COMPATIBILITY: Partial<Record<string, PromoCompatibility>> = {
+  FOUR_G_AND_FIVE_G: "FOUR_G",
+};
 
 const FIELD_CLASS =
   "rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950";
@@ -75,7 +81,8 @@ function parseFilter(params: Record<string, string | string[] | undefined>): {
     ? (sortParam as SortKey)
     : "value";
 
-  const compatibilityParam = first(params.compatibility);
+  const rawCompatibility = first(params.compatibility);
+  const compatibilityParam = (rawCompatibility && LEGACY_COMPATIBILITY[rawCompatibility]) || rawCompatibility;
   const compatibility = COMPATIBILITY_OPTIONS.some(
     (option) => option.value === compatibilityParam && option.value !== "",
   )
@@ -332,12 +339,13 @@ export default async function HomePage({
 
         <div className="flex flex-col gap-1">
           <label htmlFor="compatibility" className="text-sm font-medium">
-            4G/5G compatibility
+            Your phone
           </label>
           <select
             id="compatibility"
             name="compatibility"
             defaultValue={filter.compatibility ?? ""}
+            aria-describedby="compatibility-hint"
             className={FIELD_CLASS}
           >
             {COMPATIBILITY_OPTIONS.map((option) => (
@@ -346,6 +354,9 @@ export default async function HomePage({
               </option>
             ))}
           </select>
+          <p id="compatibility-hint" className={`text-xs ${MUTED}`}>
+            5G phones work with every promo.
+          </p>
         </div>
 
         <div className="flex flex-col gap-1">
@@ -453,7 +464,11 @@ export default async function HomePage({
               {unavailableCount > 0 ? ` · ${unavailableCount} no longer offered, listed last` : ""}
               {filter.compatibility === "UNKNOWN"
                 ? " · showing promos whose 4G/5G compatibility is not yet verified"
-                : ""}
+                : filter.compatibility === "FIVE_G"
+                  ? " · showing promos that need a 5G phone"
+                  : filter.compatibility === "FOUR_G"
+                    ? " · showing promos that work on a 4G phone"
+                    : ""}
             </p>
             <CompareSubmitButton className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800" />
           </div>

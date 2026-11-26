@@ -27,13 +27,15 @@ export function normalizeSearch(raw: string | undefined): string | undefined {
   return text || undefined;
 }
 
-/** A 4G filter also matches dual-network promos, and vice versa. */
+/**
+ * Phone filter values. "Works on a 4G phone" (FOUR_G) matches every promo an
+ * LTE phone can use; "5G phone only" (FIVE_G) matches only promos that need a
+ * 5G phone. A 5G phone runs every verified promo, so it needs no option.
+ */
 export function compatibilityValues(compatibility: PromoCompatibility): PromoCompatibility[] {
   switch (compatibility) {
     case "FOUR_G":
       return ["FOUR_G", "FOUR_G_AND_FIVE_G"];
-    case "FIVE_G":
-      return ["FIVE_G", "FOUR_G_AND_FIVE_G"];
     default:
       return [compatibility];
   }
