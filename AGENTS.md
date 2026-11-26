@@ -506,8 +506,15 @@ Do not guess these decisions. Track and resolve them explicitly:
 - Final frontend, backend, and database stack — resolved 2026-11-19, see
   `docs/adr/0001-tech-stack.md`. Hosting platform is still open.
 - Package manager — pnpm proposed, not yet confirmed.
-- Exact providers and promo categories supported in the first release.
-- Exact definition of a promo's 4G/5G compatibility.
+- Exact providers and promo categories supported in the first release —
+  partially resolved 2026-11-20: the MVP providers are Smart, Globe and DITO;
+  TNT (as its own provider) and GOMO are also registered, both manual-only (see
+  `docs/providers.md`). Promo categories (for example hour-based access
+  passes) are still open.
+- Exact definition of a promo's 4G/5G compatibility — resolved 2026-11-20 as
+  phone compatibility: `FIVE_G` needs a 5G phone, `FOUR_G_AND_FIVE_G` works on
+  any LTE phone. Applied to manually imported promos; collected promos stay
+  `UNKNOWN` (see `docs/ranking.md`).
 - Ranking formula and weighting — resolved for promo-level value on
   2026-11-19, see `docs/ranking.md`. Provider-level value-for-money that
   includes coverage and speed remains open.
@@ -516,12 +523,25 @@ Do not guess these decisions. Track and resolve them explicitly:
   data — partially resolved: unlimited and unverified promos are not
   scored, app-specific data is excluded from the comparable figure, and
   night/rollover/throttled inclusions are preserved in `dataNotes` until
-  the team decides how to model them.
-- Definition of when a promo becomes outdated.
+  the team decides how to model them. No-expiry promos (resolved
+  2026-11-20) are stored with `noExpiry`, shown as "No expiry" and scored on GB per
+  ₱100 like other promos (validity does not enter that ratio), with no
+  per-day figures.
+- Definition of when a promo becomes outdated — resolved 2026-11-20: a
+  promo not re-verified for more than 14 days is shown as outdated (same
+  rule for every provider, computed at display time; see
+  `src/lib/freshness.ts`). Outdated promos stay listed, marked, after
+  current ones. A manual admin "Outdated" switch is wanted but deferred
+  until the admin panel exists.
 - Scraping schedule and permitted collection method for each provider —
-  methods resolved on 2026-11-19 in `docs/providers.md` (Globe and DITO
-  automated and robots-permitted; Smart manual-only because of a bot
-  challenge). The schedule and the terms-of-use review are still open.
+  methods resolved on 2026-11-19 and updated 2026-11-20 in
+  `docs/providers.md` (DITO automated; Globe automated but currently blocked
+  by a bot challenge, with the manual import as fallback; Smart, TNT and
+  GOMO manual-only). Schedule decided 2026-11-20: automated collection
+  runs weekly; a team member updates collectors and `docs/providers.md`
+  when a provider's rules or terms change. Still open: where the job runs
+  (depends on hosting) and the per-provider terms sign-off
+  (`termsReviewed`) required before scheduled production runs.
 - Whether reviews are associated with providers, promos, or both.
 - Whether reviews require moderation.
 - Admin authentication and authorization approach.

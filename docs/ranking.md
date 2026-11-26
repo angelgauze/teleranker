@@ -1,99 +1,67 @@
 # Promo ranking
 
-This document is the authority for the promo-level ranking shown on the listing
-page. The implementation is `src/lib/ranking/value.ts`; its tests are
-`src/lib/ranking/value.test.ts`.
+The authority for the promo ranking on the listing page. Implementation:
+`src/lib/ranking/value.ts`; tests: `src/lib/ranking/value.test.ts`.
 
 ## Scope
 
-The site ranks **individual promos** on a value metric built from measurable
-fields. It does **not** publish a provider "value-for-money" score that
-includes coverage or speed: no reliable, citable source for those two criteria
-has been agreed yet (see `AGENTS.md` §14). Presenting a price-only number as if
-it were the complete provider ranking would violate the requirement in
-`AGENTS.md` §3. The UI therefore labels the metric for what it is.
-
-## Inputs
-
-| Field | Meaning |
-| --- | --- |
-| `priceCentavos` | Price in integer centavos (₱70 is `7000`) |
-| `dataKind` | `TOTAL`, `UNLIMITED`, `NONE` or `UNKNOWN` |
-| `dataGb` | Headline allowance, only for `TOTAL` |
-| `allAccessGb` | All-network part of `dataGb`, when the provider splits it |
-| `validityValue`, `validityUnit` | Raw validity as published (`7 DAY`, `1 MONTH`, ...) |
+The site ranks individual promos on price and data. It does not publish a
+provider "value-for-money" score, because no citable source for coverage or
+speed has been agreed (`AGENTS.md` §14). The UI labels the metric for what it
+is and never calls a promo the "best".
 
 ## Definitions
 
-- **Price** `P = priceCentavos ÷ 100` (pesos).
-- **Validity in days** `D`: `DAY = n`, `WEEK = 7n`, `MONTH = 30n`.
-  A 30-day month is an assumption; prepaid promos are sold in 30-day chunks.
-- **Comparable data** `G = allAccessGb ?? dataGb`, for `TOTAL` promos only.
-  When a provider sells "20 GB" of which 8 GB works on all sites, the
-  comparison uses 8 GB so app-specific or 5G-bonus data cannot inflate a score.
-- **Data per day** `= G ÷ D` (GB/day).
-- **Price per day** `= P ÷ D` (₱/day).
-- **Value** `= (G ÷ P) × 100`, shown as **"GB per ₱100"**.
+| Term | Formula |
+| --- | --- |
+| Price `P` | `priceCentavos ÷ 100` (pesos) |
+| Validity `D` (days) | `DAY = n`, `WEEK = 7n`, `MONTH = 30n` |
+| Comparable data `G` | `allAccessGb ?? dataGb`, for `TOTAL` promos only |
+| **Value** | `(G ÷ P) × 100`, shown as **GB per ₱100** |
+| Data per day | `G ÷ D` |
+| Price per day | `P ÷ D` |
 
-Validity cancels out of the value ratio:
+`G` uses the all-access part when a provider splits data ("20 GB, 8 GB for all
+sites" counts as 8 GB), so app-only or 5G-bonus data cannot inflate a score.
+Validity cancels out of the value ratio, so it is shown separately as per-day
+figures instead of being hidden in one number.
 
-```
-(G ÷ D) ÷ (P ÷ D) = G ÷ P
-```
-
-so validity is reported separately (per-day figures) rather than being hidden
-inside one opaque number.
-
-## Worked examples
-
-| Promo | Data used | Price | Validity | Value | Per day |
-| --- | --- | --- | --- | --- | --- |
-| DATA MAXX 70 | 10 GB all-access | ₱70 | 7 days | 14.29 GB per ₱100 | 1.43 GB/day, ₱10.00/day |
-| Go+99 | 8 GB all-access (of 20 GB headline) | ₱99 | 7 days | 8.08 GB per ₱100 | 1.14 GB/day, ₱14.14/day |
+Example: 10 GB all-access for ₱70 over 7 days scores **14.29 GB per ₱100**
+(1.43 GB/day, ₱10.00/day).
 
 ## Edge cases
 
 | Case | Treatment |
 | --- | --- |
-| `UNLIMITED` | Not scored. No GB figure is invented; the UI says "Not comparable". |
-| `NONE` / `UNKNOWN` data | Not scored. |
-| Unknown validity | Not scored (no per-day figure is possible). |
-| Price is zero or missing | Not scored, to avoid dividing by zero. |
-| App-specific / 5G-only data | Excluded from `G`; remains visible in `dataNotes` and the headline total. |
-| Missing `allAccessGb` | Falls back to `dataGb`; the UI does not claim an all-access split that was never published. |
-| Ties | Lower price first, then promo name. |
-| Unscored promos | Sorted after every scored promo, never treated as a score of 0. |
+| `UNLIMITED`, `NONE` or `UNKNOWN` data | Not scored; shown as "Not comparable" with the reason |
+| Unknown validity | Not scored |
+| No expiry (`noExpiry`) | Scored on GB per ₱100; per-day figures "Not applicable (no expiry)"; shown as "No expiry", never as unknown |
+| Zero or missing price | Not scored |
+| App-specific or 5G-only data | Excluded from `G`; still visible in the headline total and notes |
+| Ties | Lower price first, then name |
+| Unscored promos | Listed after all scored promos, never as a score of 0 |
 
 ## Sorting
 
-`sort` query values map to:
+Current promos come first, then outdated ones (not re-checked for more than 14
+days), then promos no longer offered (only when the user includes them). Each
+group is sorted the same way:
 
-- `value` — descending GB per ₱100 (default).
-- `price` — ascending price.
-- `data` — descending headline data (`null` last).
-- `validity` — descending validity in days (`null` last).
+- `value`: highest GB per ₱100 first (default).
+- `price`: lowest price first.
+- `data`: most headline data first, unknown last.
+- `validity`: no-expiry first, then longest validity, unknown last.
 
-Budget filtering happens on `priceCentavos` before sorting. Compatibility
-filtering matches dual-network promos for both the 4G and the 5G options.
+The budget filter applies to price before sorting. Promos that work on both
+4G and 5G phones appear under both the 4G and the 5G filter.
 
 ## Limitations
 
-1. **No coverage or speed.** The metric covers price and data only. The UI must
-   not describe the top promo as the "best" overall.
-2. **All-access data is a parser heuristic.** It comes from phrases such as
-   "N GB for All Sites" (Globe) or "N GB all-access" (DITO). If a provider
-   changes wording, the value falls back to the total and the parser warning is
-   logged; the change is visible in `dataNotes`.
-3. **Prepaid only.** Both collectors currently read prepaid promo pages.
-4. **Point-in-time snapshot.** Values describe the last verified scrape. Prices
-   change; `lastVerifiedAt` is shown on every row.
-5. **Unverified compatibility.** Collected promos are stored with
-   `UNKNOWN` compatibility because the definition of a promo's 4G/5G support is
-   still an open decision. They are therefore excluded from compatibility
-   filters until an administrator verifies them.
-
-## Tests
-
-`src/lib/ranking/value.test.ts` covers unit conversion, the all-access fallback,
-unlimited promos, unknown validity, zero price, ordering, tie-breaks and
-nulls-last behaviour.
+1. Price and data only: no coverage or speed.
+2. The all-access figure is read from wording such as "N GB for All Sites"; if a
+   provider changes it, the value falls back to the total.
+3. Prepaid promos only.
+4. Values reflect the last check; every promo shows its last-verified date.
+5. Compatibility is only known for imported promos. Collected promos stay
+   `UNKNOWN`, appear under "Not yet verified", and are left out of the 4G and 5G
+   filters.

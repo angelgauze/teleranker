@@ -1,135 +1,115 @@
 # TeleRanker
 
 Comparison site for mobile telecom promos in the Philippines (Globe, Smart,
-DITO and any provider added later). Requirements live in [`AGENTS.md`](./AGENTS.md).
+DITO, TNT and GOMO; the provider list is configurable). Requirements live in
+[`AGENTS.md`](./AGENTS.md).
 
 ## Status
 
 | Area | State |
 | --- | --- |
 | Promo listing with filters and sorting | Implemented |
-| Value ranking (GB per ₱100) | Implemented, formula in [`docs/ranking.md`](./docs/ranking.md) |
+| Value ranking (GB per ₱100) | Implemented ([`docs/ranking.md`](./docs/ranking.md)) |
 | Compare view (up to two promos) | Implemented |
-| Collectors for Globe and DITO | Implemented, run manually or on a schedule |
-| Smart collector | Not possible; manual entry only (see [`docs/providers.md`](./docs/providers.md)) |
-| Safe publish + run logging + alerts | Implemented (console alert sink until a channel is chosen) |
-| Admin panel, manual overrides, review submission UI | Not built yet |
+| DITO collector | Working; run by hand until the weekly job has a host |
+| Globe collector | Implemented, but the site currently blocks it; manual import is the fallback |
+| Smart, TNT, GOMO | Manual import only ([`docs/providers.md`](./docs/providers.md)) |
+| Safe publishing, run logs, alerts | Implemented (alerts go to the console until a channel is chosen) |
+| Reviews, admin panel, provider pages, site navigation | Not built yet |
 
 No provider data is committed to this repository. Promos appear only after a
-collection run publishes to your own database.
+collection run or a manual import publishes to your own database.
 
 ## Stack
 
-| Layer | Choice |
-| --- | --- |
-| Language | TypeScript (strict) |
-| Framework | Next.js App Router (React 19) |
-| Styling | Tailwind CSS v4 |
-| Database | PostgreSQL |
-| ORM | Prisma 7 (`prisma-client` generator + `@prisma/adapter-pg`) |
-| Validation | Zod 4 |
-| HTML parsing | Cheerio |
-| Tests | Vitest |
-| Script runner | tsx |
-
-Rationale: [`docs/adr/0001-tech-stack.md`](./docs/adr/0001-tech-stack.md).
+TypeScript (strict), Next.js App Router (React 19), Tailwind CSS v4,
+PostgreSQL, Prisma 7 (`prisma-client` generator + `@prisma/adapter-pg`), Zod 4,
+Cheerio, Vitest and tsx. Rationale:
+[`docs/adr/0001-tech-stack.md`](./docs/adr/0001-tech-stack.md).
 
 ## Setup
 
 ```bash
 pnpm install
-cp .env.example .env            # set DATABASE_URL
-pnpm db:migrate                 # create the schema
-pnpm scrape --provider=all --live --publish   # collect and publish promos
-pnpm dev                        # http://localhost:3000
+cp .env.example .env                               # set DATABASE_URL
+pnpm db:migrate                                    # create the schema
+pnpm scrape --provider=all --live --publish        # collect and publish promos
+pnpm import:promos --file=<promos.csv> --publish   # hand-entered providers (CSV kept outside the repo)
+pnpm dev                                           # http://localhost:3000
 ```
 
-Prisma 7 requires a driver adapter, so `DATABASE_URL` must be a PostgreSQL
-connection string. `.env` is gitignored; `.env.example` is committed.
+`DATABASE_URL` must be a PostgreSQL connection string. `.env` is gitignored;
+`.env.example` is committed.
+
+## Deploying
+
+1. Set `DATABASE_URL` in the host's environment settings, never in a committed file.
+2. Build with `pnpm install` (also generates the Prisma client) and `pnpm build`.
+3. Apply migrations with `pnpm db:deploy`. Never run `db:migrate` against a hosted database.
+4. Load data from any machine whose `DATABASE_URL` points at the hosted database: run the
+   scrape with `--publish`, then the import with the sheet. The site shows the data at once.
+5. Back up the database (`pg_dump`) before demos and releases.
 
 ## Scripts
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm dev` / `pnpm build` / `pnpm start` | Next.js dev, production build, production server |
-| `pnpm lint` | ESLint |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm test` / `pnpm test:watch` | Vitest |
-| `pnpm db:generate` | Generate the Prisma client into `src/generated/prisma` |
-| `pnpm db:migrate` | Create and apply a migration |
-| `pnpm db:studio` | Browse data in Prisma Studio |
-| `pnpm scrape --provider=<id> --live [--publish]` | Collect promos |
+| `pnpm dev` / `build` / `start` | Next.js dev server, production build, production server |
+| `pnpm lint` / `pnpm typecheck` | ESLint / `tsc --noEmit` |
+| `pnpm test` / `pnpm test:watch` | Unit tests (no database needed) |
+| `pnpm db:setup-test` / `pnpm test:db` | Prepare the `*_test` database, then run the PostgreSQL tests ([Tests](#tests)) |
+| `pnpm db:generate` / `db:migrate` / `db:studio` | Prisma client, migrations, data browser |
+| `pnpm db:deploy` | Apply migrations to a hosted database ([Deploying](#deploying)) |
+| `pnpm scrape --provider=<id> --live [--publish]` | Collect promos (`dito`, `globe` or `all`) |
 | `pnpm scrape --provider=<id> --fixture=<path>` | Parse a saved page offline |
-
-Supported ids: `globe`, `dito`, `all`. `smart` is refused because its promo
-pages sit behind a bot-protection challenge.
+| `pnpm scrape ... --accept-smaller-set` | Publish a held-back run after checking the provider's page ([maintenance](./docs/providers.md#maintenance-runs-on-hold-and-errors)) |
+| `pnpm import:promos --file=<csv> [--publish] [--replace-collected]` | Validate (and publish) the hand-entered promo sheet ([manual import](./docs/providers.md#manual-import)) |
 
 ## Layout
 
 ```
-prisma/schema.prisma        Provider, Promo, Review, ScrapeRun
-prisma/migrations/          Applied migrations
-src/app/                    Listing, compare view, route handlers
-src/lib/schema/             Zod schemas — the single validation boundary
-src/lib/collect/            Fetch (robots-aware), normalise, validate, publish policy
-src/lib/collect/collectors/ Provider parsers + HTML fixtures
-src/lib/db/                 Prisma client, repository, listing queries
-src/lib/ranking/            Value metrics and sorting (pure functions)
-src/lib/ui/                 Formatting helpers
-scripts/scrape.ts           Collection CLI
-docs/                       ADR, ranking formula, provider compliance
+prisma/                     Schema (Provider, Promo, Review, ScrapeRun) and migrations
+src/app/                    Listing and compare pages
+src/lib/schema/             Zod schemas: the single validation boundary
+src/lib/collect/            Fetching, validation, publish policy, alerts, provider registry
+src/lib/collect/collectors/ Provider parsers and HTML fixtures
+src/lib/db/                 Prisma client, repository, listing queries, error messages
+src/lib/manual/             CSV parser and promo sheet import
+src/lib/ranking/            Value metric and sorting
+src/lib/ui/                 Formatting and status helpers
+scripts/                    Collection, import and test-database CLIs
+docs/                       ADR, ranking formula, provider decisions
 ```
 
-Boundaries (`AGENTS.md` §8):
+Nothing outside `collectors/` knows a provider's markup; ranking and UI code
+never import from it; every record written to `Promo` passes
+`promoInputSchema` first.
 
-- Nothing outside `src/lib/collect/collectors/` knows a provider's markup.
-- `src/lib/ranking/` and the UI must not import from `collectors/`.
-- Every record written to `Promo` passes `promoInputSchema` first.
+## How it works
 
-## How collection works
+**Collection.** A collector parses a provider page into drafts, every draft is
+validated, and the run publishes only if it passes the safety check (enough
+records, few rejections, not much smaller than before). Otherwise the previous
+promos stay listed, an alert is raised, and the run is logged. Promos that
+disappear become "no longer offered", not deleted. Details:
+[`docs/providers.md`](./docs/providers.md).
 
-```
-collector -> PromoDraft[] -> Zod validation -> publish policy -> Postgres
-                                     |                |
-                              rejections logged   blocked runs keep
-                                                  last-known-good data
-```
-
-- `robots.txt` is enforced before every request; requests are spaced by at
-  least 2 seconds per host and identify the bot.
-- A run publishes only if it collected records, kept at least 50% of them, and
-  did not shrink below 50% of the currently published set. Otherwise it is
-  blocked, alerted and recorded with `published = false`.
-- Promos that disappear from a provider page are marked `UNAVAILABLE`, not
-  deleted, so users can see they are no longer offered.
-- Diagnostics stored in `ScrapeRun` contain rejection reasons, never HTML or
-  credentials.
-
-Details and evidence per provider: [`docs/providers.md`](./docs/providers.md).
-
-## Ranking
-
-Value = **all-access GB per ₱100**, i.e. `(all-access GB ÷ price in ₱) × 100`.
-Validity is reported separately as GB/day and ₱/day. Unlimited promos and promos
-with unknown data or validity are listed but never scored, so they cannot be
-mistaken for zero-value offers. Coverage and speed are not part of the score
-because no agreed data source exists.
-
-Full definitions, worked examples and limitations:
+**Ranking.** Value is all-access GB per ₱100. Validity is shown separately as
+GB/day and ₱/day. Unlimited promos and promos with unknown data or validity are
+listed but never scored. Coverage and speed are not part of the score. Details:
 [`docs/ranking.md`](./docs/ranking.md).
 
-## Data model notes
+**Data model.**
 
-- Money is integer centavos; `7000` is ₱70.00.
-- `DataAllocationKind` separates `TOTAL`, `UNLIMITED`, `NONE` and `UNKNOWN`;
-  `dataGb` exists only for `TOTAL`.
-- `allAccessGb` stores the all-network part of the allowance when the provider
-  splits it.
-- Validity keeps the published value and unit; conversion to days happens in the
-  ranking layer.
-- Compatibility defaults to `UNKNOWN` for collected promos. 5G support is never
-  inferred from the provider's network.
-- Reviews store a blank name as `NULL` and cap the body at 400 characters.
+- Money is integer centavos (`7000` is ₱70.00).
+- Data is `TOTAL`, `UNLIMITED`, `NONE` or `UNKNOWN`; unknown is never stored
+  as zero. `allAccessGb` is the all-network part when a provider splits data.
+- `noExpiry` marks promos that never expire, distinct from unknown validity.
+- Compatibility is about phones: `FIVE_G` needs a 5G phone,
+  `FOUR_G_AND_FIVE_G` works on any LTE phone, `UNKNOWN` by default.
+- `origin` is `COLLECTED` (collector run) or `MANUAL` (import).
+- A promo not re-checked for more than 14 days shows as "Outdated"
+  (`src/lib/freshness.ts`).
 
 ## Tests
 
@@ -137,29 +117,30 @@ Full definitions, worked examples and limitations:
 pnpm test
 ```
 
-Coverage includes schema validation, text normalisation (price/data/validity),
-robots parsing, publish-policy guards, provider parsers against captured
-fixtures, the collection orchestration (empty/suspicious/failed runs) and the
-ranking formula. Tests never call provider websites.
+Covers schemas, parsing, provider parsers against saved fixtures, the publish
+policy, collection runs, the manual import, filters, formatting and the
+ranking formula. Tests never call provider websites and use synthetic data.
 
-## Dependencies added beyond the framework
+The PostgreSQL tests (`src/lib/db/*.db.test.ts`) run against a separate
+database, never the real one:
 
-- `zod` — one validation layer for scraped, admin and review input.
-- `cheerio` — provider pages are HTML; a real parser is safer than regex.
-- `@prisma/client`, `@prisma/adapter-pg`, `prisma`, `dotenv` — database layer and Prisma 7 config.
-- `vitest` — unit tests.
-- `tsx` — runs `scripts/scrape.ts` with TypeScript and path aliases.
+```bash
+# once: add TEST_DATABASE_URL to .env (see .env.example); its name must end in "_test"
+pnpm db:setup-test     # creates it and applies migrations (re-run after a new migration)
+pnpm test:db
+```
+
+Without `TEST_DATABASE_URL` they are skipped.
+
+## Dependencies beyond the framework
+
+- `zod`: one validation layer for scraped, imported and user input.
+- `cheerio`: HTML parsing for provider pages.
+- `@prisma/client`, `@prisma/adapter-pg`, `prisma`, `dotenv`: database layer.
+- `vitest`: tests. `tsx`: runs the TypeScript CLIs.
 
 ## Open decisions
 
-Tracked in `AGENTS.md` §14. Most relevant now:
-
-1. Provider terms-of-use review before scheduled production runs
-   (`termsReviewed` is `false` for all three providers).
-2. Scraping schedule and alert delivery channel.
-3. Definition of a promo's 4G/5G compatibility — collected promos stay
-   `UNKNOWN` until this is decided.
-4. Coverage and speed sources for provider-level value-for-money.
-5. Admin authentication, review moderation, and whether reviews attach to
-   providers, promos, or both.
-6. Hosting and rollback procedure.
+Tracked in [`AGENTS.md`](./AGENTS.md) §14, notably: provider terms sign-off
+before scheduled runs, where the weekly job runs and how alerts are delivered,
+coverage and speed sources, admin authentication, review rules, and hosting.
