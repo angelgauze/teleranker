@@ -39,7 +39,20 @@ export function compatibilityValues(compatibility: PromoCompatibility): PromoCom
   }
 }
 
-/** Builds the listing query. Pure, so the filter rules can be unit tested. */
+/** True when a promo passes the 4G/5G filter (always true without one). */
+export function matchesCompatibility(compatibility: PromoCompatibility, filter: PromoFilter): boolean {
+  return !filter.compatibility || compatibilityValues(filter.compatibility).includes(compatibility);
+}
+
+/**
+ * Builds the listing query. Pure, so the filter rules can be unit tested.
+ *
+ * The 4G/5G filter is not part of the query: it runs after duplicates are
+ * hidden (see loadListing), because the scraped and hand-entered copies of one
+ * promo can disagree on 4G/5G. Filtering first would let the hidden copy
+ * through. Provider, price and name are what make two rows copies, so those
+ * filters are safe in the query.
+ */
 export function buildPromoWhere(filter: PromoFilter): Prisma.PromoWhereInput {
   // Stored ACTIVE promos may still be shown as outdated (src/lib/freshness.ts).
   const where: Prisma.PromoWhereInput = filter.includeInactive
@@ -53,10 +66,6 @@ export function buildPromoWhere(filter: PromoFilter): Prisma.PromoWhereInput {
       ...(filter.minPriceCentavos !== undefined ? { gte: filter.minPriceCentavos } : {}),
       ...(filter.maxPriceCentavos !== undefined ? { lte: filter.maxPriceCentavos } : {}),
     };
-  }
-
-  if (filter.compatibility) {
-    where.compatibility = { in: compatibilityValues(filter.compatibility) };
   }
 
   if (filter.search) {

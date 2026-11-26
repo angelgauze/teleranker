@@ -74,10 +74,27 @@ describe("describeDifferences", () => {
 });
 
 describe("displayNames", () => {
+  const named = (name: string, providerName = "Globe", priceCentavos = 10900, origin?: "COLLECTED" | "MANUAL") => ({
+    promo: { name, priceCentavos },
+    providerName,
+    origin,
+  });
+
   it("adds the provider only when both names match", () => {
-    const a = { promo: { name: "GoSURF50" }, providerName: "Globe" };
-    const b = { promo: { name: "GoSURF50" }, providerName: "TM" };
-    expect(displayNames(a, b)).toEqual(["GoSURF50 (Globe)", "GoSURF50 (TM)"]);
-    expect(displayNames(a, { promo: { name: "Other" }, providerName: "DITO" })).toEqual(["GoSURF50", "Other"]);
+    expect(displayNames(named("GoSURF50"), named("GoSURF50", "TM"))).toEqual(["GoSURF50 (Globe)", "GoSURF50 (TM)"]);
+    expect(displayNames(named("GoSURF50"), named("Other", "DITO"))).toEqual(["GoSURF50", "Other"]);
+  });
+
+  it("tells apart same-name promos from one provider by price, then by source", () => {
+    expect(displayNames(named("Go+109"), named("Go+109", "Globe", 11900))).toEqual(["Go+109 (₱109)", "Go+109 (₱119)"]);
+    expect(displayNames(named("Go+109", "Globe", 10900, "COLLECTED"), named("Go+109", "Globe", 10900, "MANUAL"))).toEqual([
+      "Go+109 (checked automatically)",
+      "Go+109 (checked manually)",
+    ]);
+  });
+
+  it("never returns the same name twice", () => {
+    const [a, b] = displayNames(named("Go+109"), named("Go+109"));
+    expect(a).not.toBe(b);
   });
 });

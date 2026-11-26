@@ -212,8 +212,9 @@ export function PlanForNeeds({
       {result.state === "ok" ? (
         <>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {entries.map((entry) => (
-              <PlanResult key={entry.label} entry={entry} needs={result.needs} />
+            {entries.map((entry, index) => (
+              // Position, not label: the two cards are always the two compared promos in order.
+              <PlanResult key={index} entry={entry} needs={result.needs} />
             ))}
           </div>
           <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-zinc-600 dark:text-zinc-400">

@@ -15,6 +15,7 @@ import {
 import { SourceLink } from "../_components/source-link";
 import { displayNames, type ComparedPromo } from "@/lib/compare/differences";
 import { isFourGOnlyPhone, parseNeeds } from "@/lib/compare/needs";
+import { isSamePromo } from "@/lib/db/promo-duplicates";
 import { loadPromosByIds, type PublishedPromo } from "@/lib/db/promos";
 import {
   COMPATIBILITY_LABELS,
@@ -122,7 +123,10 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   if (ids.length !== 2) return { title: "Compare promos" };
   const { promos } = await loadPicked(ids.join(","));
   return {
-    title: promos.length === 2 ? `${promos[0].promo.name} vs ${promos[1].promo.name}` : "Compare promos",
+    title:
+      promos.length === 2 && !isSamePromo(promos[0].promo, promos[1].promo)
+        ? displayNames(promos[0], promos[1]).join(" vs ")
+        : "Compare promos",
   };
 }
 
@@ -181,9 +185,24 @@ export default async function ComparePage({ searchParams }: Props) {
     );
   }
 
-  const inactive = promos.filter(({ promo }) => promo.status !== "ACTIVE");
+  if (isSamePromo(promos[0].promo, promos[1].promo)) {
+    // The scraped and hand-entered copies of one promo: nothing to compare.
+    return (
+      <Notice title="You picked the same promo twice">
+        <p>
+          {promos[0].promo.name} is listed once, but we keep one copy from the provider&rsquo;s page
+          and one entered manually. Pick a different promo to compare it with on the {LISTING_LINK}.
+        </p>
+      </Notice>
+    );
+  }
+
   const labels = displayNames(promos[0], promos[1]);
-  const compared: ComparedPromo[] = promos.map((entry, index) => ({ ...entry, label: labels[index] }));
+  const compared: Array<PublishedPromo & ComparedPromo> = promos.map((entry, index) => ({
+    ...entry,
+    label: labels[index],
+  }));
+  const inactive = compared.filter(({ promo }) => promo.status !== "ACTIVE");
   const rows = isFourGOnlyPhone(params) ? [PHONE_ROW, ...ROWS] : ROWS;
 
   return (
@@ -203,7 +222,7 @@ export default async function ComparePage({ searchParams }: Props) {
             className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
           >
             {inactive
-              .map(({ promo }) => `${promo.name}: ${STATUS_LABELS[promo.status].toLowerCase()}`)
+              .map(({ label, promo }) => `${label}: ${STATUS_LABELS[promo.status].toLowerCase()}`)
               .join("; ")}
             . Details may no longer match what the provider currently sells.
           </p>
@@ -215,9 +234,9 @@ export default async function ComparePage({ searchParams }: Props) {
         {/* Phones: one field at a time, the two values side by side, names pinned on top. */}
         <div className="mt-6 md:hidden">
           <div className="sticky top-0 z-10 grid grid-cols-2 gap-3 border-b border-zinc-300 bg-white py-2 text-sm font-semibold dark:border-zinc-700 dark:bg-zinc-950">
-            {promos.map(({ id, promo }) => (
+            {compared.map(({ id, label }) => (
               <p key={id} className="min-w-0 break-words">
-                {promo.name}
+                {label}
               </p>
             ))}
           </div>
@@ -225,9 +244,9 @@ export default async function ComparePage({ searchParams }: Props) {
             <section key={row.label} className="border-b border-zinc-200 py-2 dark:border-zinc-800">
               <h2 className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{row.label}</h2>
               <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
-                {promos.map((entry) => (
+                {compared.map((entry) => (
                   <p key={entry.id} className="min-w-0 break-words">
-                    <span className="sr-only">{entry.promo.name}: </span>
+                    <span className="sr-only">{entry.label}: </span>
                     {row.value(entry)}
                   </p>
                 ))}
@@ -237,9 +256,9 @@ export default async function ComparePage({ searchParams }: Props) {
           <section className="py-2">
             <h2 className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Source</h2>
             <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
-              {promos.map((entry) => (
+              {compared.map((entry) => (
                 <p key={entry.id} className="min-w-0 break-words">
-                  <span className="sr-only">{entry.promo.name}: </span>
+                  <span className="sr-only">{entry.label}: </span>
                   <Source entry={entry} />
                 </p>
               ))}
@@ -256,9 +275,9 @@ export default async function ComparePage({ searchParams }: Props) {
                 <th scope="col" className="w-48 px-2 py-2 text-left">
                   Field
                 </th>
-                {promos.map(({ id, promo }) => (
+                {compared.map(({ id, label }) => (
                   <th key={id} scope="col" className="px-2 py-2 text-left">
-                    {promo.name}
+                    {label}
                   </th>
                 ))}
               </tr>
@@ -269,7 +288,7 @@ export default async function ComparePage({ searchParams }: Props) {
                   <th scope="row" className="px-2 py-2 text-left font-medium">
                     {row.label}
                   </th>
-                  {promos.map((entry) => (
+                  {compared.map((entry) => (
                     <td key={entry.id} className="px-2 py-2">
                       {row.value(entry)}
                     </td>
@@ -280,7 +299,7 @@ export default async function ComparePage({ searchParams }: Props) {
                 <th scope="row" className="px-2 py-2 text-left font-medium">
                   Source
                 </th>
-                {promos.map((entry) => (
+                {compared.map((entry) => (
                   <td key={entry.id} className="px-2 py-2">
                     <Source entry={entry} />
                   </td>

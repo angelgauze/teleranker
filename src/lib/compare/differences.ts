@@ -1,4 +1,5 @@
 import type { ScoredPromo } from "../ranking/value";
+import type { PromoOrigin } from "../schema/promo";
 import { COMPATIBILITY_LABELS, formatGb, formatPeso } from "../ui/format";
 
 /**
@@ -14,13 +15,32 @@ export interface ComparedPromo extends ScoredPromo {
   label: string;
 }
 
-/** Promo names, with the provider added when both promos share a name. */
-export function displayNames(
-  a: { promo: { name: string }; providerName: string },
-  b: { promo: { name: string }; providerName: string },
-): [string, string] {
+interface Named {
+  promo: { name: string; priceCentavos: number };
+  providerName: string;
+  /** Collected or entered manually; tells apart two copies of one promo. */
+  origin?: PromoOrigin;
+}
+
+const SOURCE: Record<PromoOrigin, string> = {
+  COLLECTED: "checked automatically",
+  MANUAL: "checked manually",
+};
+
+/**
+ * Promo names, never the same twice. When both promos share a name, the first
+ * difference is added: the provider, then the price, then the source (the
+ * scraped and hand-entered copies of one promo), else a number.
+ */
+export function displayNames(a: Named, b: Named): [string, string] {
+  const name = (entry: Named, extra: string) => `${entry.promo.name} (${extra})`;
   if (a.promo.name !== b.promo.name) return [a.promo.name, b.promo.name];
-  return [`${a.promo.name} (${a.providerName})`, `${b.promo.name} (${b.providerName})`];
+  if (a.providerName !== b.providerName) return [name(a, a.providerName), name(b, b.providerName)];
+  if (a.promo.priceCentavos !== b.promo.priceCentavos) {
+    return [name(a, formatPeso(a.promo.priceCentavos)), name(b, formatPeso(b.promo.priceCentavos))];
+  }
+  if (a.origin && b.origin && a.origin !== b.origin) return [name(a, SOURCE[a.origin]), name(b, SOURCE[b.origin])];
+  return [name(a, "1"), name(b, "2")];
 }
 
 const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
