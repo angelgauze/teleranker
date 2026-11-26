@@ -1,12 +1,12 @@
 import type { Prisma, PrismaClient } from "../../generated/prisma/client";
-import { summarizeProviderPromos, type ProviderSummary } from "../providers/summary";
+import { summarizeProviderPromos, type ProviderSummary, type SummaryRow } from "../providers/summary";
 import { getPrismaClient } from "./client";
 import { describeError } from "./errors";
 import { effectiveStatus } from "../freshness";
 import { computeValueMetrics, type ScoredPromo } from "../ranking/value";
 import type { PromoInput, PromoOrigin } from "../schema/promo";
 import { describeCollectionStatus, type CollectionStatus } from "../ui/collection-status";
-import { hideDuplicates } from "./promo-duplicates";
+import { duplicateKey, fillCompatibilityFromSheet, hideDuplicates } from "./promo-duplicates";
 import { buildPromoWhere, matchesCompatibility, orderForListing, type PromoFilter } from "./promo-filter";
 
 export type { PromoFilter } from "./promo-filter";
@@ -24,6 +24,8 @@ export interface PublishedPromo extends ScoredPromo {
   id: string;
   /** Collected by a run or entered manually from the sheet; both are listed. */
   origin: PromoOrigin;
+  /** The 4G/5G value came from the sheet because the scraped copy did not state it. */
+  compatibilityCheckedManually?: true;
   providerName: string;
   /** The provider's general promo page, for promos without their own link. */
   providerPromoPageUrl?: string;
@@ -91,12 +93,12 @@ export async function loadListing(filter: PromoFilter): Promise<ListingResult> {
       }),
     ]);
 
+    // Hide duplicates, fill unverified 4G/5G from the sheet, then filter by 4G/5G.
+    const all = rows.map((row) => toPublished(row, now));
+    const shown = fillCompatibilityFromSheet(hideDuplicates(all), all);
     return {
-      // Hide duplicates first, then filter by 4G/5G (see buildPromoWhere).
       promos: orderForListing(
-        hideDuplicates(rows.map((row) => toPublished(row, now))).filter(({ promo }) =>
-          matchesCompatibility(promo.compatibility, filter),
-        ),
+        shown.filter(({ promo }) => matchesCompatibility(promo.compatibility, filter)),
         filter.sort,
       ),
       providers,
@@ -122,7 +124,25 @@ export async function loadPromosByIds(ids: string[]): Promise<{
     });
     // Preserve the order of the requested ids.
     const now = new Date();
-    const byId = new Map(rows.map((row) => [row.id, toPublished(row, now)]));
+    // Sheet rows for the same promos, so an unverified scraped promo shows the
+    // checked 4G/5G value here too (same rule as the listing).
+    const keys = new Set(rows.map((row) => duplicateKey(toPublished(row, now).promo)));
+    const sheetRows = rows.some((row) => row.origin === "COLLECTED" && row.compatibility === "UNKNOWN")
+      ? await getPrismaClient().promo.findMany({
+          where: {
+            origin: "MANUAL",
+            compatibility: { not: "UNKNOWN" },
+            OR: rows.map((row) => ({ providerId: row.providerId, priceCentavos: row.priceCentavos })),
+          },
+          include: { provider: true },
+        })
+      : [];
+    const sheet = sheetRows.map((row) => toPublished(row, now)).filter(({ promo }) => keys.has(duplicateKey(promo)));
+    const filled = fillCompatibilityFromSheet(
+      rows.map((row) => toPublished(row, now)),
+      sheet,
+    );
+    const byId = new Map(filled.map((entry) => [entry.id, entry]));
     return {
       promos: ids.map((id) => byId.get(id)).filter((promo): promo is PublishedPromo => Boolean(promo)),
       databaseUnavailable: false,
@@ -239,25 +259,35 @@ async function readProviders(prisma: PrismaClient, id?: string): Promise<Provide
         lastVerifiedAt,
         ...(bothSources ? { handEntered: { lastVerifiedAt: manual._max.lastVerifiedAt ?? undefined } } : {}),
       }),
-      // Count each promo once when both sources list it, like the listing.
+      // Count each promo once when both sources list it, and use the sheet's
+      // 4G/5G for unverified scraped promos, like the listing.
       summary: summarizeProviderPromos(
-        hideDuplicates(
-          rows
-            .filter((row) => row.providerId === provider.id)
-            .map((row) => ({
-              ...row,
-              origin: row.origin as PromoOrigin,
-              promo: {
-                providerId: row.providerId,
-                name: row.name,
-                priceCentavos: row.priceCentavos,
-                status: row.status,
-                lastVerifiedAt: row.lastVerifiedAt ?? undefined,
-              },
-            })),
-        ),
+        summaryRows(rows.filter((row) => row.providerId === provider.id)),
         now,
       ),
     };
   });
+}
+
+/** Provider summary rows after hiding duplicates and filling 4G/5G from the sheet. */
+function summaryRows(
+  rows: Array<SummaryRow & { providerId: string; name: string; origin: string }>,
+): SummaryRow[] {
+  const entries = rows.map((row) => ({
+    origin: row.origin as PromoOrigin,
+    promo: {
+      providerId: row.providerId,
+      name: row.name,
+      priceCentavos: row.priceCentavos,
+      status: row.status,
+      lastVerifiedAt: row.lastVerifiedAt ?? undefined,
+      compatibility: row.compatibility,
+    },
+  }));
+  return fillCompatibilityFromSheet(hideDuplicates(entries), entries).map(({ promo }) => ({
+    status: promo.status,
+    priceCentavos: promo.priceCentavos,
+    compatibility: promo.compatibility,
+    lastVerifiedAt: promo.lastVerifiedAt ?? null,
+  }));
 }

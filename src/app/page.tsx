@@ -178,6 +178,9 @@ function PromoRow({ entry }: { entry: PublishedPromo }) {
       </Cell>
       <Cell label="4G/5G" className="xl:whitespace-nowrap">
         {COMPATIBILITY_LABELS[promo.compatibility]}
+        {entry.compatibilityCheckedManually ? (
+          <span className={`block text-xs ${MUTED}`}>Checked manually</span>
+        ) : null}
         {COMPATIBILITY_NOTES[promo.compatibility] ? (
           <span className={`block max-w-40 whitespace-normal text-xs ${MUTED}`}>
             {COMPATIBILITY_NOTES[promo.compatibility]}

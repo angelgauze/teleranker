@@ -66,10 +66,12 @@ const ROWS: CompareRow[] = [
   },
   {
     label: "4G/5G compatibility",
-    value: ({ promo }) => {
+    value: ({ promo, compatibilityCheckedManually }) => {
       const note = COMPATIBILITY_NOTES[promo.compatibility];
       const label = COMPATIBILITY_LABELS[promo.compatibility];
-      return note ? `${label} (${note.charAt(0).toLowerCase()}${note.slice(1)})` : label;
+      const shown = note ? `${label} (${note.charAt(0).toLowerCase()}${note.slice(1)})` : label;
+      // The scraped copy did not state it; the value comes from the sheet.
+      return compatibilityCheckedManually ? `${shown} · checked manually` : shown;
     },
   },
   { label: "Calls", value: ({ promo }) => formatCalls(promo) },
