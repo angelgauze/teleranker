@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { computeValueMetrics } from "../ranking/value";
 import type { PromoInput } from "../schema/promo";
-import { buildPromoWhere, compatibilityValues, normalizeSearch, orderForListing } from "./promo-filter";
+import { hideDuplicates } from "./promo-duplicates";
+import { buildPromoWhere, compatibilityValues, matchesCompatibility, normalizeSearch, orderForListing } from "./promo-filter";
 
 describe("buildPromoWhere", () => {
   it("lists current and outdated promos by default, not unavailable ones", () => {
@@ -43,10 +44,34 @@ describe("buildPromoWhere", () => {
     });
   });
 
-  it("filters by compatibility", () => {
-    expect(buildPromoWhere({ sort: "value", compatibility: "FIVE_G" }).compatibility).toEqual({
-      in: ["FIVE_G", "FOUR_G_AND_FIVE_G"],
+  it("leaves the 4G/5G filter out of the query (it runs after duplicates are hidden)", () => {
+    expect(buildPromoWhere({ sort: "value", compatibility: "FIVE_G" }).compatibility).toBeUndefined();
+  });
+
+  it("filters by compatibility after the query", () => {
+    const filter = { sort: "value" as const, compatibility: "FIVE_G" as const };
+    expect(matchesCompatibility("FIVE_G", filter)).toBe(true);
+    expect(matchesCompatibility("FOUR_G_AND_FIVE_G", filter)).toBe(true);
+    expect(matchesCompatibility("UNKNOWN", filter)).toBe(false);
+    expect(matchesCompatibility("UNKNOWN", { sort: "value" })).toBe(true);
+  });
+
+  it("never lets a hidden duplicate through the 4G/5G filter", () => {
+    const copy = (origin: "COLLECTED" | "MANUAL", compatibility: "UNKNOWN" | "FOUR_G_AND_FIVE_G", day: number) => ({
+      origin,
+      promo: {
+        providerId: "globe",
+        name: "Go+109",
+        priceCentavos: 10900,
+        status: "ACTIVE" as const,
+        compatibility,
+        lastVerifiedAt: new Date(Date.UTC(2026, 10, day)),
+      },
     });
+    const listed = hideDuplicates([copy("COLLECTED", "UNKNOWN", 26), copy("MANUAL", "FOUR_G_AND_FIVE_G", 18)]);
+    const filter = { sort: "value" as const, compatibility: "FOUR_G_AND_FIVE_G" as const };
+    // The shown copy is the scraped one; the filter judges that copy, not the hidden one.
+    expect(listed.filter(({ promo }) => matchesCompatibility(promo.compatibility, filter))).toEqual([]);
   });
 
   it("searches promo and provider names, ignoring case", () => {

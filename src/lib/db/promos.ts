@@ -7,7 +7,7 @@ import { computeValueMetrics, type ScoredPromo } from "../ranking/value";
 import type { PromoInput, PromoOrigin } from "../schema/promo";
 import { describeCollectionStatus, type CollectionStatus } from "../ui/collection-status";
 import { hideDuplicates } from "./promo-duplicates";
-import { buildPromoWhere, orderForListing, type PromoFilter } from "./promo-filter";
+import { buildPromoWhere, matchesCompatibility, orderForListing, type PromoFilter } from "./promo-filter";
 
 export type { PromoFilter } from "./promo-filter";
 
@@ -92,8 +92,11 @@ export async function loadListing(filter: PromoFilter): Promise<ListingResult> {
     ]);
 
     return {
+      // Hide duplicates first, then filter by 4G/5G (see buildPromoWhere).
       promos: orderForListing(
-        hideDuplicates(rows.map((row) => toPublished(row, now))),
+        hideDuplicates(rows.map((row) => toPublished(row, now))).filter(({ promo }) =>
+          matchesCompatibility(promo.compatibility, filter),
+        ),
         filter.sort,
       ),
       providers,

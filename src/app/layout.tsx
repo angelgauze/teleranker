@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BackToTop } from "./_components/back-to-top";
 import { SiteHeader } from "./_components/site-header";
 import "./globals.css";
 
@@ -22,6 +23,7 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
         <SiteHeader />
         {children}
+        <BackToTop />
       </body>
     </html>
   );

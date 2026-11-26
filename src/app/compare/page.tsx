@@ -5,7 +5,17 @@ import { cache } from "react";
 
 // The listing depends on live database state, so it cannot be prerendered.
 export const instant = false;
+import {
+  Differences,
+  PHONE_ROW,
+  PhoneSwitch,
+  PlanForNeeds,
+  type CompareRow,
+} from "../_components/compare-extras";
 import { SourceLink } from "../_components/source-link";
+import { displayNames, type ComparedPromo } from "@/lib/compare/differences";
+import { isFourGOnlyPhone, parseNeeds } from "@/lib/compare/needs";
+import { isSamePromo } from "@/lib/db/promo-duplicates";
 import { loadPromosByIds, type PublishedPromo } from "@/lib/db/promos";
 import {
   COMPATIBILITY_LABELS,
@@ -23,7 +33,7 @@ import {
   STATUS_LABELS,
 } from "@/lib/ui/format";
 
-const ROWS: Array<{ label: string; value: (entry: PublishedPromo) => string }> = [
+const ROWS: CompareRow[] = [
   { label: "Provider", value: ({ providerName }) => providerName },
   { label: "Status", value: ({ promo }) => formatStatus(promo.status) },
   { label: "Price", value: ({ promo }) => formatPeso(promo.priceCentavos) },
@@ -73,9 +83,9 @@ const ROWS: Array<{ label: string; value: (entry: PublishedPromo) => string }> =
 
 function Notice({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
+    <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
       <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-      <div className="mt-3 space-y-3 text-zinc-700 dark:text-zinc-300">{children}</div>
+      <div className="mt-3 max-w-3xl space-y-3 text-zinc-700 dark:text-zinc-300">{children}</div>
     </main>
   );
 }
@@ -113,14 +123,18 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   if (ids.length !== 2) return { title: "Compare promos" };
   const { promos } = await loadPicked(ids.join(","));
   return {
-    title: promos.length === 2 ? `${promos[0].promo.name} vs ${promos[1].promo.name}` : "Compare promos",
+    title:
+      promos.length === 2 && !isSamePromo(promos[0].promo, promos[1].promo)
+        ? displayNames(promos[0], promos[1]).join(" vs ")
+        : "Compare promos",
   };
 }
 
 export default async function ComparePage({ searchParams }: Props) {
   await connection();
 
-  const ids = pickedIds(await searchParams);
+  const params = await searchParams;
+  const ids = pickedIds(params);
 
   if (ids.length === 0) {
     return (
@@ -171,111 +185,137 @@ export default async function ComparePage({ searchParams }: Props) {
     );
   }
 
-  const inactive = promos.filter(({ promo }) => promo.status !== "ACTIVE");
+  if (isSamePromo(promos[0].promo, promos[1].promo)) {
+    // The scraped and hand-entered copies of one promo: nothing to compare.
+    return (
+      <Notice title="You picked the same promo twice">
+        <p>
+          {promos[0].promo.name} is listed once, but we keep one copy from the provider&rsquo;s page
+          and one entered manually. Pick a different promo to compare it with on the {LISTING_LINK}.
+        </p>
+      </Notice>
+    );
+  }
+
+  const labels = displayNames(promos[0], promos[1]);
+  const compared: Array<PublishedPromo & ComparedPromo> = promos.map((entry, index) => ({
+    ...entry,
+    label: labels[index],
+  }));
+  const inactive = compared.filter(({ promo }) => promo.status !== "ACTIVE");
+  const rows = isFourGOnlyPhone(params) ? [PHONE_ROW, ...ROWS] : ROWS;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
-      <p className="text-sm">
-        <Link href="/" className="underline underline-offset-2">
-          <span aria-hidden="true">←</span> Back to the listing
-        </Link>
-      </p>
-      <h1 className="mt-4 text-3xl font-semibold tracking-tight">Compare promos</h1>
-
-      {inactive.length > 0 ? (
-        <p
-          role="status"
-          className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
-        >
-          {inactive
-            .map(({ promo }) => `${promo.name}: ${STATUS_LABELS[promo.status].toLowerCase()}`)
-            .join("; ")}
-          . Details may no longer match what the provider currently sells.
+    // Same left edge as the header and the other pages; the content keeps a readable width.
+    <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
+      <div className="max-w-5xl">
+        <p className="text-sm">
+          <Link href="/" className="underline underline-offset-2">
+            <span aria-hidden="true">←</span> Back to the listing
+          </Link>
         </p>
-      ) : null}
+        <h1 className="mt-4 text-3xl font-semibold tracking-tight">Compare promos</h1>
 
-      {/* Phones: one field at a time, the two values side by side, names pinned on top. */}
-      <div className="mt-6 md:hidden">
-        <div className="sticky top-0 z-10 grid grid-cols-2 gap-3 border-b border-zinc-300 bg-white py-2 text-sm font-semibold dark:border-zinc-700 dark:bg-zinc-950">
-          {promos.map(({ id, promo }) => (
-            <p key={id} className="min-w-0 break-words">
-              {promo.name}
-            </p>
+        {inactive.length > 0 ? (
+          <p
+            role="status"
+            className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            {inactive
+              .map(({ label, promo }) => `${label}: ${STATUS_LABELS[promo.status].toLowerCase()}`)
+              .join("; ")}
+            . Details may no longer match what the provider currently sells.
+          </p>
+        ) : null}
+
+        <Differences a={compared[0]} b={compared[1]} />
+        <PhoneSwitch ids={ids} params={params} />
+
+        {/* Phones: one field at a time, the two values side by side, names pinned on top. */}
+        <div className="mt-6 md:hidden">
+          <div className="sticky top-0 z-10 grid grid-cols-2 gap-3 border-b border-zinc-300 bg-white py-2 text-sm font-semibold dark:border-zinc-700 dark:bg-zinc-950">
+            {compared.map(({ id, label }) => (
+              <p key={id} className="min-w-0 break-words">
+                {label}
+              </p>
+            ))}
+          </div>
+          {rows.map((row) => (
+            <section key={row.label} className="border-b border-zinc-200 py-2 dark:border-zinc-800">
+              <h2 className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{row.label}</h2>
+              <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
+                {compared.map((entry) => (
+                  <p key={entry.id} className="min-w-0 break-words">
+                    <span className="sr-only">{entry.label}: </span>
+                    {row.value(entry)}
+                  </p>
+                ))}
+              </div>
+            </section>
           ))}
-        </div>
-        {ROWS.map((row) => (
-          <section key={row.label} className="border-b border-zinc-200 py-2 dark:border-zinc-800">
-            <h2 className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{row.label}</h2>
+          <section className="py-2">
+            <h2 className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Source</h2>
             <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
-              {promos.map((entry) => (
+              {compared.map((entry) => (
                 <p key={entry.id} className="min-w-0 break-words">
-                  <span className="sr-only">{entry.promo.name}: </span>
-                  {row.value(entry)}
+                  <span className="sr-only">{entry.label}: </span>
+                  <Source entry={entry} />
                 </p>
               ))}
             </div>
           </section>
-        ))}
-        <section className="py-2">
-          <h2 className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Source</h2>
-          <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
-            {promos.map((entry) => (
-              <p key={entry.id} className="min-w-0 break-words">
-                <span className="sr-only">{entry.promo.name}: </span>
-                <Source entry={entry} />
-              </p>
-            ))}
-          </div>
-        </section>
-      </div>
+        </div>
 
-      {/* Tablets and desktops: the field-by-field table. */}
-      <div className="mt-6 hidden md:block">
-        <table className="w-full border-collapse text-sm">
-          <caption className="sr-only">Field-by-field comparison of the selected promos</caption>
-          <thead>
-            <tr className="border-b border-zinc-300 dark:border-zinc-700">
-              <th scope="col" className="w-48 px-2 py-2 text-left">
-                Field
-              </th>
-              {promos.map(({ id, promo }) => (
-                <th key={id} scope="col" className="px-2 py-2 text-left">
-                  {promo.name}
+        {/* Tablets and desktops: the field-by-field table. */}
+        <div className="mt-6 hidden md:block">
+          <table className="w-full border-collapse text-sm">
+            <caption className="sr-only">Field-by-field comparison of the selected promos</caption>
+            <thead>
+              <tr className="border-b border-zinc-300 dark:border-zinc-700">
+                <th scope="col" className="w-48 px-2 py-2 text-left">
+                  Field
                 </th>
+                {compared.map(({ id, label }) => (
+                  <th key={id} scope="col" className="px-2 py-2 text-left">
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.label} className="border-b border-zinc-200 dark:border-zinc-800">
+                  <th scope="row" className="px-2 py-2 text-left font-medium">
+                    {row.label}
+                  </th>
+                  {compared.map((entry) => (
+                    <td key={entry.id} className="px-2 py-2">
+                      {row.value(entry)}
+                    </td>
+                  ))}
+                </tr>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {ROWS.map((row) => (
-              <tr key={row.label} className="border-b border-zinc-200 dark:border-zinc-800">
+              <tr>
                 <th scope="row" className="px-2 py-2 text-left font-medium">
-                  {row.label}
+                  Source
                 </th>
-                {promos.map((entry) => (
+                {compared.map((entry) => (
                   <td key={entry.id} className="px-2 py-2">
-                    {row.value(entry)}
+                    <Source entry={entry} />
                   </td>
                 ))}
               </tr>
-            ))}
-            <tr>
-              <th scope="row" className="px-2 py-2 text-left font-medium">
-                Source
-              </th>
-              {promos.map((entry) => (
-                <td key={entry.id} className="px-2 py-2">
-                  <Source entry={entry} />
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
-      </div>
+            </tbody>
+          </table>
+        </div>
 
-      <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
-        &ldquo;Unknown&rdquo; means the value was not published or could not be verified. It is
-        never treated as zero.
-      </p>
+        <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
+          &ldquo;Unknown&rdquo; means the value was not published or could not be verified. It is
+          never treated as zero.
+        </p>
+
+        <PlanForNeeds ids={ids} params={params} result={parseNeeds(params)} entries={compared} />
+      </div>
     </main>
   );
 }

@@ -219,6 +219,14 @@ export default async function HomePage({
   const params = await searchParams;
   const { filter, budget } = parseFilter(params);
   const { promos, providers, databaseUnavailable } = await loadListing(filter);
+  // Any narrowing filter; "no results" then means the filters, not an empty database.
+  const filtered = Boolean(
+    filter.search ||
+      filter.providerId ||
+      filter.compatibility ||
+      filter.minPriceCentavos !== undefined ||
+      filter.maxPriceCentavos !== undefined,
+  );
   const count = (status: string) => promos.filter(({ promo }) => promo.status === status).length;
   const activeCount = count("ACTIVE");
   const outdatedCount = count("OUTDATED");
@@ -230,10 +238,7 @@ export default async function HomePage({
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
       <header className="border-b border-zinc-200 pb-6 dark:border-zinc-800">
-        <p className={`text-sm font-medium tracking-wide uppercase ${MUTED}`}>
-          Telecom promo comparison · Philippines
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Mobile promos</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Mobile promos</h1>
         <div className="mt-3 max-w-2xl space-y-1 text-zinc-700 dark:text-zinc-300">
           <p>
             Prepaid promos collected from provider pages or entered manually from them, each with the
@@ -410,23 +415,28 @@ export default async function HomePage({
           role="status"
           className="mt-8 rounded-lg border border-zinc-200 p-6 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"
         >
-          <h2 className="text-base font-semibold">No published promos match these filters</h2>
-          <p className="mt-1">
-            {filter.search ? `No promo or provider name contains "${filter.search}". ` : ""}
-            Try widening the budget or choosing another provider or compatibility.
-            {filter.includeInactive
-              ? ""
-              : " Promos that are no longer offered are hidden unless you include them."}
-          </p>
-          <p className="mt-3">If nothing has been published yet, run one of these:</p>
-          <ul className="mt-1 list-disc space-y-1 pl-5">
-            <li>
-              a collection: <code>pnpm scrape --provider=all --live --publish</code>
-            </li>
-            <li>
-              a manual import: <code>pnpm import:promos --file=&lt;csv&gt; --publish</code>
-            </li>
-          </ul>
+          {filtered ? (
+            <>
+              <h2 className="text-base font-semibold">No results found.</h2>
+              <p className="mt-1">
+                {filter.search ? `No promo or provider name contains "${filter.search}". ` : ""}
+                Try another search, a wider budget, or another provider or compatibility.
+                {filter.includeInactive
+                  ? ""
+                  : " Promos that are no longer offered are hidden unless you include them."}
+              </p>
+              <p className="mt-3">
+                <Link href="/" className="underline underline-offset-2">
+                  Show all promos
+                </Link>
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-base font-semibold">No promos to show yet.</h2>
+              <p className="mt-1">Promo details haven&rsquo;t been published yet. Please check back later.</p>
+            </>
+          )}
         </section>
       ) : (
         <form method="get" action="/compare" className="mt-8">

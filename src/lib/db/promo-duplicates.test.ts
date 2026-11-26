@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duplicateKey, hideDuplicates, type ListedEntry } from "./promo-duplicates";
+import { duplicateKey, hideDuplicates, isSamePromo, type ListedEntry } from "./promo-duplicates";
 
 function entry(
   origin: ListedEntry["origin"],
@@ -27,6 +27,15 @@ describe("duplicateKey", () => {
     expect(duplicateKey(a)).toBe(duplicateKey(entry("MANUAL", "GO+ 109", "2026-11-17").promo));
     expect(duplicateKey(a)).not.toBe(duplicateKey({ ...a, priceCentavos: 11900 }));
     expect(duplicateKey(a)).not.toBe(duplicateKey({ ...a, providerId: "smart" }));
+  });
+});
+
+describe("isSamePromo", () => {
+  it("matches the scraped and manual copies of one promo, not different promos", () => {
+    const a = entry("COLLECTED", "Go+109", "2026-11-26").promo;
+    expect(isSamePromo(a, entry("MANUAL", "GO+ 109", "2026-11-17").promo)).toBe(true);
+    expect(isSamePromo(a, { ...a, priceCentavos: 11900 })).toBe(false);
+    expect(isSamePromo(a, { ...a, name: "Go+129" })).toBe(false);
   });
 });
 

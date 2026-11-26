@@ -20,6 +20,11 @@ export function duplicateKey(promo: ListedEntry["promo"]): string {
   return `${promo.providerId}|${name}|${promo.priceCentavos}`;
 }
 
+/** True when two listed rows are copies of one promo (same provider, name and price). */
+export function isSamePromo(a: ListedEntry["promo"], b: ListedEntry["promo"]): boolean {
+  return duplicateKey(a) === duplicateKey(b);
+}
+
 /** Listed promos rank above "no longer offered" ones, then the newest check wins; collected wins a tie. */
 function rank(entry: ListedEntry): [number, number, number] {
   return [
