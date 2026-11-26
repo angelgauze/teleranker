@@ -8,7 +8,7 @@ How each provider's promos get into TeleRanker, and why. Re-check a provider's
 | Provider | Mode | Source page | Reason |
 | --- | --- | --- | --- |
 | DITO | Automated | `https://dito.ph/prepaid` | Server-rendered promo cards; `robots.txt` allows the page |
-| Globe | Automated, manual import as fallback | `https://www.globe.com.ph/prepaid/promos` | The site answers with a bot challenge, so runs fail safely until it lifts |
+| Globe | Automated, plus the manual sheet | `https://www.globe.com.ph/prepaid/promos` | The site answers with a bot challenge, so runs fail safely until it lifts |
 | Smart | Manual only | Smart store promo pages | Bot challenge on the main site; terms prohibit automated access |
 | TNT | Manual only | Smart store promo pages | Smart brand, same terms as Smart |
 | GOMO | Manual only | `https://www.gomo.ph/data-offers` | Full catalogue only exists in page JavaScript |
@@ -33,9 +33,9 @@ terms, which is required before scheduled production runs.
   (HTTP 403). The fetcher stops on any `robots.txt` failure other than 404/410,
   so the run fails safely, alerts and publishes nothing. The challenge is never
   worked around (no browser user agent, headless browser or cookie replay).
-- The collector stays registered as automated. Meanwhile Globe promos come from
-  the manual import; once a run succeeds again, it replaces the hand-entered set
-  (see [Maintenance](#maintenance-runs-on-hold-and-errors) for the safety check).
+- The collector stays registered as automated. Globe's hand-entered promos are
+  listed beside whatever a run collects (see [Manual import](#manual-import)), so
+  a blocked run leaves them in place.
 - When the page was reachable: `robots.txt` allowed `/prepaid/promos`
   (faceted `?f[` URLs, `/content/` and `/search/` are disallowed). Cards
   (`section-b2c-promo__card-list`) give the name in `.card-title`, a headline
@@ -69,24 +69,31 @@ terms, which is required before scheduled production runs.
 
 ## Manual import
 
-For Smart, TNT and GOMO, and for Globe while its runs fail. The team transcribes
-promos from the official pages into a spreadsheet kept **outside this
-repository**, exports the "Promos" sheet as CSV, and loads it:
+The only source for Smart, TNT and GOMO, and the support set for DITO and Globe.
+The team transcribes promos from the official pages into a spreadsheet kept
+**outside this repository**, exports the "Promos" sheet as CSV, and loads it:
 
 ```bash
 pnpm import:promos --file=<path.csv>                   # validate only
 pnpm import:promos --file=<path.csv> --publish         # write to the database
-pnpm import:promos --file=<path.csv> --publish --replace-collected
 ```
 
 - Every row passes `promoInputSchema`. If any row fails, nothing is written and
   each error is printed with its line number.
 - `brand_id` must be a provider registered in `src/lib/collect/registry.ts`.
 - All providers in the file are written in one transaction (all or nothing),
-  with origin `MANUAL`. Promos missing from a newer sheet become `UNAVAILABLE`.
-- A provider with active collector-published promos is skipped unless
-  `--replace-collected` is passed, so a sheet never silently overwrites scraped
-  data. Otherwise the most recent publish for a provider wins.
+  with origin `MANUAL`. Hand-entered promos missing from a newer sheet become
+  `UNAVAILABLE`.
+- **The sheet supports the collector; neither replaces the other.** An import
+  only changes hand-entered promos and a run only changes collected ones, so
+  both are listed together. Each promo shows its last-checked date and "Checked
+  automatically" or "Checked manually".
+- When both list the same promo (same provider, name and price, ignoring case,
+  spaces and punctuation), only the most recently checked copy is shown
+  (`src/lib/db/promo-duplicates.ts`); the other stays stored.
+- Sheet `promo_id`s start with the provider (`dito-data-10`); collector keys do
+  not (`data-10`). A sheet ID the collector already uses is refused, and nothing
+  is written.
 - Contributor names (`verified_by`, `entered_by`), app perks, fair-use figures
   and the sheet's row check are not imported.
 
@@ -146,15 +153,10 @@ Enforced in `src/lib/collect/http.ts` and `robots.ts`:
 For the admin or maintenance team.
 
 **Why a run is held back.** A run publishes only if it collected records,
-rejected at most half of them, and kept at least half of the baseline:
-
-- the number of promos the provider's last successful published run accepted;
-- or, if no run has ever published for the provider (Globe today), the number of
-  hand-entered promos currently listed.
-
-The second rule stops a broken first run, for example after a redesign, from
-replacing a full hand-entered catalogue with a handful of promos. A held-back
-run changes nothing: the listing keeps the previous details and shows "Update
+rejected at most half of them, and kept at least half of what the provider's
+last successful published run accepted (no limit before the first one). Runs
+never replace hand-entered promos, so those are not part of the baseline. A
+held-back run changes nothing: the listing keeps the previous details and shows "Update
 on hold", the run is recorded with `published = false`, and an alert gives the
 reason, such as `record count dropped to 8% of the published set (3 of 36)`.
 
@@ -174,7 +176,7 @@ reason, such as `record count dropped to 8% of the published set (3 of 36)`.
    published.
 3. If the page lists about as many promos as before, the parser is broken. Do
    not use the flag: refresh the fixture, fix the collector and its tests, and
-   keep the hand-entered set meanwhile.
+   the hand-entered promos stay listed meanwhile.
 
 **Error messages** (`src/lib/db/errors.ts`):
 
