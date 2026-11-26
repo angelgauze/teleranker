@@ -5,6 +5,7 @@ import { effectiveStatus } from "../freshness";
 import { computeValueMetrics, type ScoredPromo } from "../ranking/value";
 import type { PromoInput, PromoOrigin } from "../schema/promo";
 import { describeCollectionStatus, type CollectionStatus } from "../ui/collection-status";
+import { hideDuplicates } from "./promo-duplicates";
 import { buildPromoWhere, orderForListing, type PromoFilter } from "./promo-filter";
 
 export type { PromoFilter } from "./promo-filter";
@@ -20,6 +21,8 @@ function logLoadError(what: string, error: unknown) {
 
 export interface PublishedPromo extends ScoredPromo {
   id: string;
+  /** Collected by a run or entered manually from the sheet; both are listed. */
+  origin: PromoOrigin;
   providerName: string;
   /** The provider's general promo page, for promos without their own link. */
   providerPromoPageUrl?: string;
@@ -62,6 +65,7 @@ function toPublished(row: PromoRow, now: Date): PublishedPromo {
   const promo = toPromoInput(row, now);
   return {
     id: row.id,
+    origin: row.origin as PromoOrigin,
     providerName: row.provider.name,
     providerPromoPageUrl: row.provider.promoPageUrl ?? undefined,
     promo,
@@ -88,7 +92,7 @@ export async function loadListing(filter: PromoFilter): Promise<ListingResult> {
 
     return {
       promos: orderForListing(
-        rows.map((row) => toPublished(row, now)),
+        hideDuplicates(rows.map((row) => toPublished(row, now))),
         filter.sort,
       ),
       providers,
@@ -166,6 +170,8 @@ export async function loadCollectionStatuses(): Promise<ProviderCollectionStatus
     return providers.map((provider) => {
       const groups = listed.filter((group) => group.providerId === provider.id);
       const main = [...groups].sort((a, b) => b._count._all - a._count._all)[0];
+      const manual = groups.find((group) => group.origin === "MANUAL");
+      const bothSources = manual !== undefined && groups.some((group) => group.origin === "COLLECTED");
       const lastVerifiedAt = groups
         .map((group) => group._max.lastVerifiedAt)
         .filter((date): date is Date => date !== null)
@@ -179,6 +185,7 @@ export async function loadCollectionStatuses(): Promise<ProviderCollectionStatus
           runs: provider.scrapeRuns,
           origin: (main?.origin as PromoOrigin | undefined) ?? null,
           lastVerifiedAt,
+          ...(bothSources ? { handEntered: { lastVerifiedAt: manual._max.lastVerifiedAt ?? undefined } } : {}),
         }),
       };
     });

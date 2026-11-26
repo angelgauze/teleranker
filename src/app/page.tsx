@@ -22,6 +22,7 @@ import {
   formatCalls,
   formatDataAllocation,
   formatDate,
+  ORIGIN_LABELS,
   formatGb,
   formatPerDay,
   formatPeso,
@@ -183,6 +184,7 @@ function PromoRow({ entry }: { entry: PublishedPromo }) {
       </Cell>
       <Cell label="Verified" className="md:whitespace-nowrap">
         {formatDate(promo.lastVerifiedAt)}
+        <span className={`block text-xs ${MUTED}`}>{ORIGIN_LABELS[entry.origin]}</span>
       </Cell>
       <Cell label="Source">
         <SourceLink
@@ -221,7 +223,7 @@ export default async function HomePage({
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Compare mobile promos</h1>
         <p className="mt-3 max-w-2xl text-zinc-700 dark:text-zinc-300">
-          Promos collected from provider pages or entered by hand from them, with the date each
+          Promos collected from provider pages or entered manually from them, with the date each
           record was last verified. Value is ranked on all-access data per peso, not on price
           alone.
         </p>

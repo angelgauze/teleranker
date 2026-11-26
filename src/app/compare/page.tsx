@@ -11,6 +11,7 @@ import {
   formatCalls,
   formatDataAllocation,
   formatDate,
+  ORIGIN_LABELS,
   formatGb,
   formatPerDay,
   formatPeso,
@@ -61,7 +62,11 @@ const ROWS: Array<{ label: string; value: (entry: PublishedPromo) => string }> =
   },
   { label: "Calls", value: ({ promo }) => formatCalls(promo) },
   { label: "Texts", value: ({ promo }) => formatTexts(promo) },
-  { label: "Last verified", value: ({ promo }) => formatDate(promo.lastVerifiedAt) },
+  {
+    label: "Last verified",
+    value: ({ promo, origin }) =>
+      `${formatDate(promo.lastVerifiedAt)} (${ORIGIN_LABELS[origin].toLowerCase()})`,
+  },
 ];
 
 export default async function ComparePage({

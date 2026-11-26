@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { PROMO_STATUSES } from "../schema/promo";
-import { COMPATIBILITY_NOTES, formatCalls, formatDataAllocation, formatPerDay, formatStatus, sourceLinkFor, formatTexts, formatValidity, STATUS_LABELS } from "./format";
+import { PROMO_ORIGINS, PROMO_STATUSES } from "../schema/promo";
+import { COMPATIBILITY_NOTES, formatCalls, formatDataAllocation, formatPerDay, formatStatus, sourceLinkFor, formatTexts, formatValidity, ORIGIN_LABELS, STATUS_LABELS } from "./format";
 
 describe("formatStatus", () => {
   it("labels every status", () => {
@@ -91,5 +91,11 @@ describe("COMPATIBILITY_NOTES", () => {
     expect(COMPATIBILITY_NOTES.FOUR_G_AND_FIVE_G).toBeUndefined();
     expect(COMPATIBILITY_NOTES.FOUR_G).toBeUndefined();
     expect(COMPATIBILITY_NOTES.UNKNOWN).toBeUndefined();
+  });
+});
+
+describe("ORIGIN_LABELS", () => {
+  it("names how every origin was checked, in words", () => {
+    for (const origin of PROMO_ORIGINS) expect(ORIGIN_LABELS[origin]).toMatch(/^Checked (automatically|manually)$/);
   });
 });

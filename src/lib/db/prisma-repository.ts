@@ -2,14 +2,15 @@ import { Prisma, type PrismaClient } from "../../generated/prisma/client";
 import type { PromoOverride } from "../schema/override";
 import type { PromoCompatibility, PromoInput, PromoOrigin } from "../schema/promo";
 import type { RunReport } from "../collect/types";
-import type {
-  OverrideCandidate,
-  OverrideImportSummary,
-  OverrideSet,
-  PromoRepository,
-  ProviderSeed,
-  PublishSet,
-  PublishSummary,
+import {
+  originClash,
+  type OverrideCandidate,
+  type OverrideImportSummary,
+  type OverrideSet,
+  type PromoRepository,
+  type ProviderSeed,
+  type PublishSet,
+  type PublishSummary,
 } from "./repository";
 
 type Tx = Prisma.TransactionClient;
@@ -36,8 +37,13 @@ function keysOf(promos: PromoInput[]): string[] {
 }
 
 /**
- * Replaces one provider's active set inside an open transaction. Shared by
- * publishPromos (one provider) and publishMany (several, all-or-nothing).
+ * Replaces one provider's active set from one origin inside an open
+ * transaction. Shared by publishPromos (one provider) and publishMany
+ * (several, all-or-nothing).
+ *
+ * Collected and hand-entered promos are separate sets: a collector run only
+ * touches COLLECTED promos and a sheet import only MANUAL ones, so the sheet
+ * supports the collector instead of replacing it (and the other way round).
  */
 async function replaceSet(
   tx: Tx,
@@ -47,9 +53,17 @@ async function replaceSet(
 ): Promise<PublishSummary> {
   const keys = keysOf(promos);
 
+  // A key belongs to one origin. Refuse rather than move a promo between sets.
+  const taken = await tx.promo.findMany({
+    where: { providerId, externalKey: { in: keys }, origin: { not: origin } },
+    select: { externalKey: true },
+  });
+  if (taken.length > 0) throw new Error(originClash(providerId, taken.map((row) => row.externalKey!)));
+
   const markedUnavailable = await tx.promo.updateMany({
     where: {
       providerId,
+      origin,
       status: "ACTIVE",
       OR: [{ externalKey: null }, { externalKey: { notIn: keys } }],
     },

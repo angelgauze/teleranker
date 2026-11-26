@@ -88,15 +88,37 @@ describe.skipIf(!testUrl)("PrismaPromoRepository against PostgreSQL", () => {
     expect(await repository.lastPublishedRunCount("alpha")).toBe(2);
   });
 
-  it("replaces the active set and marks missing promos as no longer offered", async () => {
-    await repository.publishPromos("alpha", [promo("a"), promo("b")], "MANUAL");
-    const summary = await repository.publishRun(report(), [promo("b"), promo("c")]);
+  it("replaces only the run's own set and marks its missing promos as no longer offered", async () => {
+    await repository.publishPromos("alpha", [promo("m1"), promo("m2")], "MANUAL");
+    await repository.publishRun(report(), [promo("a"), promo("b")]);
+    const summary = await repository.publishRun(report({ startedAt: at(2) }), [promo("b"), promo("c")]);
 
     expect(summary).toEqual({ published: 2, markedUnavailable: 1 });
     expect(await statusOf("a")).toBe("UNAVAILABLE");
     expect(await statusOf("c")).toBe("ACTIVE");
-    expect(await repository.countPublished("alpha", "MANUAL")).toBe(0);
+    // The hand-entered promos are listed beside the collected ones, untouched.
+    expect(await repository.countPublished("alpha", "MANUAL")).toBe(2);
     expect(await repository.countPublished("alpha", "COLLECTED")).toBe(2);
+  });
+
+  it("replaces only the hand-entered set on an import", async () => {
+    await repository.publishRun(report(), [promo("a")]);
+    await repository.publishPromos("alpha", [promo("m1"), promo("m2")], "MANUAL");
+    const summary = await repository.publishPromos("alpha", [promo("m2")], "MANUAL");
+
+    expect(summary).toEqual({ published: 1, markedUnavailable: 1 });
+    expect(await statusOf("m1")).toBe("UNAVAILABLE");
+    expect(await statusOf("a")).toBe("ACTIVE");
+  });
+
+  it("refuses a key the other origin owns and changes nothing", async () => {
+    await repository.publishRun(report(), [promo("a")]);
+    await expect(repository.publishPromos("alpha", [promo("a"), promo("m")], "MANUAL")).rejects.toThrow(
+      /already used by the other source \(a\)/,
+    );
+    const row = await prisma.promo.findFirst({ where: { providerId: "alpha", externalKey: "a" } });
+    expect(row).toMatchObject({ origin: "COLLECTED", status: "ACTIVE" });
+    expect(await statusOf("m")).toBeUndefined();
   });
 
   it("rolls the promos back when the run log cannot be written", async () => {

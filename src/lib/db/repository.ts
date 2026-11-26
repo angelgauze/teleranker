@@ -71,11 +71,7 @@ export interface PromoRepository {
   /** Creates or updates the provider row that promos and runs reference. */
   ensureProvider(provider: ProviderSeed): Promise<void>;
 
-  /**
-   * Size of the currently published (ACTIVE) set from one origin. Collector
-   * runs pass "COLLECTED" so the drop guard compares a run only with what an
-   * earlier run published, never with a manually imported set.
-   */
+  /** Size of the currently published (ACTIVE) set from one origin. */
   countPublished(providerId: string, origin: PromoOrigin): Promise<number>;
 
   /**
@@ -87,13 +83,15 @@ export interface PromoRepository {
   lastPublishedRunCount(providerId: string): Promise<number>;
 
   /**
-   * Replaces the published set for a provider, whatever its origin.
+   * Replaces a provider's published set from one origin.
    *
    * Promos in the new set are inserted or updated with the given origin;
-   * previously ACTIVE promos (of either origin) that are absent from the new
+   * previously ACTIVE promos of the same origin that are absent from the new
    * set become UNAVAILABLE rather than deleted, so they remain visible as "no
-   * longer offered". The most recent publish for a provider therefore wins:
-   * a successful collector run supersedes a manual import and vice versa.
+   * longer offered". Promos of the other origin are never touched: collected
+   * and hand-entered promos are listed side by side (the hand-entered sheet
+   * supports the collector, it does not replace it). A key already used by
+   * the other origin is refused (see originClash) instead of moving the promo.
    */
   publishPromos(
     providerId: string,
@@ -141,6 +139,16 @@ export interface PromoRepository {
    * removed returns to the collector's own value.
    */
   replaceOverrides(sets: OverrideSet[]): Promise<OverrideImportSummary[]>;
+}
+
+/**
+ * Error text when a publish reuses keys the other origin already owns. Sheet
+ * promo IDs carry the provider prefix (`dito-data-10`) and collector keys do
+ * not (`data-10`), so this only fires on a mistake in the sheet.
+ */
+export function originClash(providerId: string, keys: string[]): string {
+  const shown = keys.slice(0, 5).join(", ") + (keys.length > 5 ? `, +${keys.length - 5} more` : "");
+  return `${providerId}: promo IDs already used by the other source (${shown}); give these promos different IDs`;
 }
 
 export function isPromoInput(value: unknown): value is PromoInput {
