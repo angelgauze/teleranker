@@ -100,3 +100,12 @@ export function parseCsvRecords(text: string): { header: string[]; records: CsvR
 
   return { header, records };
 }
+
+/**
+ * Writes rows as CSV (RFC 4180): fields with commas, quotes or line breaks are
+ * quoted, and lines end with CRLF so spreadsheet apps open the file cleanly.
+ */
+export function toCsv(rows: ReadonlyArray<ReadonlyArray<string>>): string {
+  const field = (value: string) => (/[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+  return rows.map((row) => row.map(field).join(",")).join("\r\n") + "\r\n";
+}

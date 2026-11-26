@@ -27,9 +27,10 @@ model Provider {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  promos     Promo[]
-  reviews    Review[]
-  scrapeRuns ScrapeRun[]
+  promos         Promo[]
+  reviews        Review[]
+  scrapeRuns     ScrapeRun[]
+  promoOverrides PromoOverride[]
 }
 
 /// Network generation a promo actually works on. UNKNOWN is a first-class
@@ -126,6 +127,33 @@ model Promo {
   @@unique([providerId, externalKey])
   @@index([providerId, status])
   @@index([priceCentavos])
+}
+
+/// A value checked by a person, applied on top of a collected promo and
+/// matched by provider and promo key (Promo.externalKey). Imported from the
+/// override sheet (scripts/import-overrides.ts), which replaces a provider's
+/// overrides as a whole, and applied again every time a collector run
+/// publishes. Only compatibility can be overridden for now.
+model PromoOverride {
+  id          String   @id @default(cuid())
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  externalKey String
+
+  compatibility PromoCompatibility
+  /// The collector's own value for the promo when the override was last
+  /// applied, restored if the override is removed. Null until first applied.
+  collectedCompatibility PromoCompatibility?
+
+  /// When a person checked the value, and where.
+  verifiedAt DateTime
+  sourceUrl  String
+  note       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([providerId, externalKey])
 }
 
 /// Moderation is not implemented yet; the field exists so a review can be

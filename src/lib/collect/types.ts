@@ -1,3 +1,4 @@
+import type { OverrideReport } from "../overrides/apply";
 import type {
   DataAllocationKind,
   PromoCompatibility,
@@ -75,4 +76,10 @@ export interface RunReport {
    * held back (`--accept-smaller-set`): the guard's reason, kept in the run log.
    */
   override?: string;
+  /**
+   * How the provider's stored promo overrides (values checked by a person)
+   * matched this run's promos. Set only when the run published and the
+   * provider has overrides.
+   */
+  promoOverrides?: OverrideReport;
 }

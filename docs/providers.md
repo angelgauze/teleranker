@@ -110,6 +110,25 @@ Column mapping (`src/lib/manual/promo-sheet.ts`):
 | `source_url` | Official link. Without one, the row links to the provider's general promo page (`promoPageUrl`), labelled as such |
 | `notes` | Promo description |
 
+## Checked values on collected promos (overrides)
+
+For 4G/5G compatibility that a collector leaves "Not verified" (all DITO
+promos). The sheet is kept **outside this repository**, and every published run
+re-applies the stored values.
+
+```bash
+pnpm overrides:template --provider=dito --out=<path.csv>   # pre-filled sheet
+pnpm import:overrides --file=<path.csv> [--publish]        # validate (and save)
+```
+
+- Fill `network_support` (`4G`, `4G/5G` or `5G`), `verified_at` and
+  `source_url` for checked promos; blank rows are ignored. Rows match by
+  `promo_id`.
+- Automated providers only (DITO, Globe). Nothing is saved if any row is
+  invalid; deleting a row returns the promo to the collector's value.
+- The checked value wins. Unmatched rows and conflicts with the collector are
+  listed in each run's log; conflicts also raise an alert.
+
 ## Collector rules
 
 Enforced in `src/lib/collect/http.ts` and `robots.ts`:

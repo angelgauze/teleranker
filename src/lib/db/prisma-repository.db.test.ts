@@ -144,4 +144,78 @@ describe.skipIf(!testUrl)("PrismaPromoRepository against PostgreSQL", () => {
     const run = await prisma.scrapeRun.findFirstOrThrow({ where: { providerId: "alpha" } });
     expect(run.rawPayload).toMatchObject({ override: "accepted smaller set: test" });
   });
+
+  const checked = (externalKey: string, compatibility: "FIVE_G" | "FOUR_G_AND_FIVE_G", providerId = "alpha") => ({
+    providerId,
+    externalKey,
+    compatibility,
+    verifiedAt: at(19),
+    sourceUrl: "https://example.test/promos",
+  });
+  const compatibilityOf = async (externalKey: string) =>
+    (await prisma.promo.findFirst({ where: { providerId: "alpha", externalKey } }))?.compatibility;
+
+  it("saves overrides, applies them, and restores the collector's value when one is removed", async () => {
+    await repository.publishRun(report(), [promo("a"), promo("b", { compatibility: "FIVE_G" })]);
+
+    const [first] = await repository.replaceOverrides([
+      { providerId: "alpha", overrides: [checked("a", "FOUR_G_AND_FIVE_G"), checked("b", "FOUR_G_AND_FIVE_G"), checked("gone", "FIVE_G")] },
+    ]);
+    expect(first).toEqual({ providerId: "alpha", saved: 3, applied: 2, unmatched: ["gone"], restored: 0 });
+    expect(await compatibilityOf("a")).toBe("FOUR_G_AND_FIVE_G");
+    expect(await compatibilityOf("b")).toBe("FOUR_G_AND_FIVE_G");
+    expect((await repository.listOverrides("alpha")).map((o) => o.externalKey)).toEqual(["a", "b", "gone"]);
+
+    const [second] = await repository.replaceOverrides([
+      { providerId: "alpha", overrides: [checked("a", "FOUR_G_AND_FIVE_G")] },
+    ]);
+    expect(second.restored).toBe(1);
+    expect(await compatibilityOf("b")).toBe("FIVE_G");
+    expect(await compatibilityOf("a")).toBe("FOUR_G_AND_FIVE_G");
+  });
+
+  it("records the collector's value from a later run on the override", async () => {
+    await repository.publishRun(report(), [promo("a")]);
+    await repository.replaceOverrides([{ providerId: "alpha", overrides: [checked("a", "FIVE_G")] }]);
+
+    await repository.publishRun(report(), [promo("a", { compatibility: "FIVE_G" })], new Map([["a", "FOUR_G_AND_FIVE_G"]]));
+    const stored = await prisma.promoOverride.findFirstOrThrow({ where: { providerId: "alpha", externalKey: "a" } });
+    expect(stored.collectedCompatibility).toBe("FOUR_G_AND_FIVE_G");
+
+    await repository.replaceOverrides([{ providerId: "alpha", overrides: [] }]);
+    expect(await compatibilityOf("a")).toBe("FOUR_G_AND_FIVE_G");
+  });
+
+  it("lists published collected promos as template candidates", async () => {
+    await repository.publishRun(report(), [promo("a", { dataGb: 7.5 }), promo("b")]);
+    await repository.publishRun(report(), [promo("a", { dataGb: 7.5 })]); // b is no longer offered
+    await repository.publishPromos("beta", [promo("m", { providerId: "beta" })], "MANUAL");
+
+    expect(await repository.listOverrideCandidates("alpha")).toEqual([
+      expect.objectContaining({ externalKey: "a", dataGb: 7.5, compatibility: "UNKNOWN" }),
+    ]);
+    expect(await repository.listOverrideCandidates("beta")).toEqual([]);
+  });
+
+  it("changes nothing for any provider when one provider's overrides fail", async () => {
+    await repository.publishRun(report(), [promo("a")]);
+
+    await expect(
+      repository.replaceOverrides([
+        { providerId: "alpha", overrides: [checked("a", "FIVE_G")] },
+        // No such provider: the foreign key fails, so the whole import rolls back.
+        { providerId: "missing", overrides: [checked("x", "FIVE_G", "missing")] },
+      ]),
+    ).rejects.toThrow();
+
+    expect(await prisma.promoOverride.count()).toBe(0);
+    expect(await compatibilityOf("a")).toBe("UNKNOWN");
+  });
+
+  it("keeps the override report in the run log", async () => {
+    const promoOverrides = { matched: 1, unmatched: ["gone"], conflicts: [] };
+    await repository.publishRun(report({ promoOverrides }), [promo("a")]);
+    const run = await prisma.scrapeRun.findFirstOrThrow({ where: { providerId: "alpha" } });
+    expect(run.rawPayload).toMatchObject({ promoOverrides });
+  });
 });

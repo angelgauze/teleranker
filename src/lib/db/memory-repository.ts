@@ -1,6 +1,10 @@
-import type { PromoInput, PromoOrigin } from "../schema/promo";
+import type { PromoOverride } from "../schema/override";
+import type { PromoCompatibility, PromoInput, PromoOrigin } from "../schema/promo";
 import type { RunReport } from "../collect/types";
 import type {
+  OverrideCandidate,
+  OverrideImportSummary,
+  OverrideSet,
   PromoRepository,
   ProviderSeed,
   PublishSet,
@@ -10,6 +14,11 @@ import type {
 export interface StoredPromo {
   promo: PromoInput;
   origin: PromoOrigin;
+}
+
+export interface StoredOverride {
+  override: PromoOverride;
+  collectedCompatibility: PromoCompatibility | null;
 }
 
 /**
@@ -24,6 +33,8 @@ export class MemoryPromoRepository implements PromoRepository {
   /** Every stored promo per provider, keyed by externalKey, whatever its status. */
   readonly promos = new Map<string, Map<string, StoredPromo>>();
   readonly runs: RunReport[] = [];
+  /** Stored overrides per provider, keyed by externalKey. */
+  readonly overrides = new Map<string, Map<string, StoredOverride>>();
 
   async ensureProvider(provider: ProviderSeed): Promise<void> {
     this.providers.set(provider.id, provider);
@@ -94,21 +105,119 @@ export class MemoryPromoRepository implements PromoRepository {
     }
   }
 
-  async publishRun(report: RunReport, promos: PromoInput[]): Promise<PublishSummary> {
+  async publishRun(
+    report: RunReport,
+    promos: PromoInput[],
+    collectedCompatibility?: ReadonlyMap<string, PromoCompatibility>,
+  ): Promise<PublishSummary> {
     // All-or-nothing, like the database transaction.
     const snapshot = new Map(this.promos.get(report.providerId) ?? []);
+    const overrideSnapshot = new Map(this.overrides.get(report.providerId) ?? []);
     try {
       const summary = await this.publishPromos(report.providerId, promos, "COLLECTED");
+      const stored = this.overrides.get(report.providerId);
+      for (const [key, compatibility] of collectedCompatibility ?? []) {
+        const entry = stored?.get(key);
+        if (entry) stored!.set(key, { ...entry, collectedCompatibility: compatibility });
+      }
       await this.recordRun(report);
       return summary;
     } catch (error) {
       this.promos.set(report.providerId, snapshot);
+      this.overrides.set(report.providerId, overrideSnapshot);
       throw error;
     }
   }
 
   async recordRun(report: RunReport): Promise<void> {
     this.runs.push(report);
+  }
+
+  async listOverrides(providerId: string): Promise<PromoOverride[]> {
+    return [...(this.overrides.get(providerId)?.values() ?? [])]
+      .map((entry) => entry.override)
+      .sort((a, b) => a.externalKey.localeCompare(b.externalKey));
+  }
+
+  async listOverrideCandidates(providerId: string): Promise<OverrideCandidate[]> {
+    return this.liveCollected(providerId).map(({ promo }) => ({
+      externalKey: promo.externalKey!,
+      name: promo.name,
+      priceCentavos: promo.priceCentavos,
+      dataKind: promo.dataKind,
+      dataGb: promo.dataGb ?? null,
+      validityValue: promo.validityValue ?? null,
+      validityUnit: promo.validityUnit ?? null,
+      noExpiry: promo.noExpiry ?? false,
+      compatibility: promo.compatibility,
+      sourceUrl: promo.sourceUrl ?? null,
+    }));
+  }
+
+  async replaceOverrides(sets: OverrideSet[]): Promise<OverrideImportSummary[]> {
+    // All-or-nothing, like the database transaction.
+    const promos = new Map([...this.promos].map(([id, stored]) => [id, new Map(stored)]));
+    const overrides = new Map([...this.overrides].map(([id, stored]) => [id, new Map(stored)]));
+    try {
+      return sets.map((set) => this.replaceProviderOverrides(set));
+    } catch (error) {
+      this.promos.clear();
+      for (const [id, stored] of promos) this.promos.set(id, stored);
+      this.overrides.clear();
+      for (const [id, stored] of overrides) this.overrides.set(id, stored);
+      throw error;
+    }
+  }
+
+  private liveCollected(providerId: string): StoredPromo[] {
+    return [...(this.promos.get(providerId)?.values() ?? [])].filter(
+      (entry) =>
+        entry.origin === "COLLECTED" &&
+        (entry.promo.status === "ACTIVE" || entry.promo.status === "OUTDATED") &&
+        Boolean(entry.promo.externalKey),
+    );
+  }
+
+  private setCompatibility(providerId: string, key: string, compatibility: PromoCompatibility): void {
+    const stored = this.promos.get(providerId)!;
+    const entry = stored.get(key)!;
+    stored.set(key, { ...entry, promo: { ...entry.promo, compatibility } });
+  }
+
+  private replaceProviderOverrides(set: OverrideSet): OverrideImportSummary {
+    const { providerId, overrides } = set;
+    const previous = this.overrides.get(providerId) ?? new Map<string, StoredOverride>();
+    const live = new Map(
+      this.liveCollected(providerId).map(({ promo }) => [promo.externalKey!, promo.compatibility]),
+    );
+
+    const next = new Map<string, StoredOverride>();
+    const unmatched: string[] = [];
+    let applied = 0;
+    for (const override of overrides) {
+      const liveValue = live.get(override.externalKey);
+      next.set(override.externalKey, {
+        override,
+        collectedCompatibility:
+          previous.get(override.externalKey)?.collectedCompatibility ?? liveValue ?? null,
+      });
+      if (liveValue === undefined) {
+        unmatched.push(override.externalKey);
+        continue;
+      }
+      this.setCompatibility(providerId, override.externalKey, override.compatibility);
+      applied += 1;
+    }
+
+    let restored = 0;
+    for (const [key, earlier] of previous) {
+      if (next.has(key) || !live.has(key) || earlier.collectedCompatibility === null) continue;
+      this.setCompatibility(providerId, key, earlier.collectedCompatibility);
+      restored += 1;
+    }
+
+    this.overrides.set(providerId, next);
+    return { providerId, saved: overrides.length, applied, unmatched, restored };
   }
 
   /** Test helper: the stored promo for a key, including inactive ones. */

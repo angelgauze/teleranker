@@ -1,4 +1,5 @@
 import { errorDetail } from "../db/errors";
+import { applyOverrides, describeOverrideReport } from "../overrides/apply";
 import type { PromoRepository, ProviderSeed } from "../db/repository";
 import type { AlertSink } from "./alerts";
 import { collectProvider, type CollectProviderResult } from "./run";
@@ -32,8 +33,32 @@ export async function persistRun(options: PersistRunOptions): Promise<RunReport>
 
   if (result.decision.publish) {
     try {
-      const summary = await repository.publishRun(report, result.promos);
+      // Values a person checked replace the collector's (same promo count, so
+      // the publish decision above is unaffected).
+      const overrides = await repository.listOverrides(provider.id);
+      const applied = applyOverrides(result.promos, overrides);
+      if (overrides.length > 0) report = { ...report, promoOverrides: applied.report };
+
+      const summary = await repository.publishRun(report, applied.promos, applied.collected);
       logger.info("Published promo set", { providerId: provider.id, ...summary });
+      if (overrides.length > 0) {
+        const line = describeOverrideReport(applied.report);
+        if (applied.report.unmatched.length > 0 || applied.report.conflicts.length > 0) {
+          logger.warn("Promo overrides need a look", { providerId: provider.id, overrides: line });
+        } else {
+          logger.info("Applied promo overrides", { providerId: provider.id, overrides: line });
+        }
+      }
+      if (applied.report.conflicts.length > 0) {
+        // The checked value was kept; the collector now disagrees with it.
+        await alerts.send({
+          severity: "warning",
+          providerId: provider.id,
+          title: `Collected values disagree with checked overrides for ${provider.id}`,
+          detail: describeOverrideReport(applied.report),
+          at: now(),
+        });
+      }
       if (report.override) {
         // Sent only once the smaller set is actually published.
         await alerts.send({
@@ -49,7 +74,7 @@ export async function persistRun(options: PersistRunOptions): Promise<RunReport>
       const attempted = report.override ? " (the smaller-set override was not applied)" : "";
       const detail = `publish failed${attempted}: ${errorDetail(error)}`;
       // The run log keeps only overrides that took effect.
-      const { override: _override, ...rest } = report;
+      const { override: _override, promoOverrides: _promoOverrides, ...rest } = report;
       report = { ...rest, status: "FAILED", published: false, errorDetail: detail };
 
       await alerts.send({
