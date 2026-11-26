@@ -47,6 +47,33 @@ pnpm dev                        # http://localhost:3000
 Prisma 7 requires a driver adapter, so `DATABASE_URL` must be a PostgreSQL
 connection string. `.env` is gitignored; `.env.example` is committed.
 
+## Database
+
+Local PostgreSQL is enough for development: set `DATABASE_URL` in `.env` and run
+`pnpm db:migrate`. The project database is hosted on Neon (project **Teleranker**,
+branch `production`), declared in `neon.ts`:
+
+```bash
+neon deploy                     # provision services and write the URLs to .env
+pnpm exec prisma migrate deploy # apply the committed migrations
+```
+
+`neon deploy` writes two connection strings:
+
+- `DATABASE_URL` — pooled (`-pooler`), used by the app at runtime.
+- `DATABASE_URL_UNPOOLED` — direct, used by Prisma CLI commands and the
+  database setup scripts.
+
+Use `prisma migrate deploy` against a hosted database. `pnpm db:migrate`
+(`prisma migrate dev`) is for authoring migrations locally and needs a shadow
+database. Neon adds `channel_binding=require`, which node-postgres accepts but
+Prisma's migration engine does not; `prisma7.config.ts` strips it for CLI
+commands only.
+
+`pnpm test:db` needs `TEST_DATABASE_URL` pointing at a separate `*_test`
+database. On Neon, use the direct connection string and run
+`pnpm db:setup-test` once.
+
 ## Scripts
 
 | Command | Purpose |
@@ -56,7 +83,8 @@ connection string. `.env` is gitignored; `.env.example` is committed.
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm test` / `pnpm test:watch` | Vitest |
 | `pnpm db:generate` | Generate the Prisma client into `src/generated/prisma` |
-| `pnpm db:migrate` | Create and apply a migration |
+| `pnpm db:migrate` | Create and apply a migration (local development) |
+| `pnpm exec prisma migrate deploy` | Apply committed migrations to a hosted database |
 | `pnpm db:studio` | Browse data in Prisma Studio |
 | `pnpm scrape --provider=<id> --live [--publish]` | Collect promos |
 | `pnpm scrape --provider=<id> --fixture=<path>` | Parse a saved page offline |

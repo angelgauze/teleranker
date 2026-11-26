@@ -3,12 +3,31 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
+/**
+ * Prisma CLI commands (migrate, studio) use a direct connection. The Neon
+ * pooled URL (DATABASE_URL) runs through PgBouncer in transaction mode, which
+ * does not support the session state migrations need. The app itself still
+ * connects with the pooled DATABASE_URL; see src/lib/db/client.ts.
+ *
+ * `channel_binding=require` is a Neon default that node-postgres understands
+ * but Prisma's migration engine does not: it fails with P1001 ("can't reach
+ * database server"). Strip it for the CLI only.
+ */
+function migrationDatabaseUrl(): string | undefined {
+  const raw = process.env["DATABASE_URL_UNPOOLED"] ?? process.env["DATABASE_URL"];
+  if (!raw) return undefined;
+
+  const url = new URL(raw);
+  url.searchParams.delete("channel_binding");
+  return url.toString();
+}
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: migrationDatabaseUrl(),
   },
 });

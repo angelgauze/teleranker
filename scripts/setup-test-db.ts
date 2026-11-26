@@ -18,7 +18,9 @@ import { testDatabaseName } from "../src/lib/db/test-database";
 
 async function main(): Promise<number> {
   const testUrl = process.env.TEST_DATABASE_URL;
-  const mainUrl = process.env.DATABASE_URL;
+  // Prefer Neon's direct URL: CREATE DATABASE cannot run through PgBouncer's
+  // transaction pooling, and migrations need a session-level connection.
+  const mainUrl = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
   if (!testUrl || !mainUrl) {
     console.error("[error] set DATABASE_URL and TEST_DATABASE_URL in .env; see .env.example");
     return 2;
@@ -44,9 +46,10 @@ async function main(): Promise<number> {
 
   console.log(`Applying migrations to "${name}"...`);
   // A fixed command string (no user input), run through the shell so pnpm's
-  // Windows .cmd shim resolves.
+  // Windows .cmd shim resolves. Both URLs point at the test database so
+  // prisma7.config.ts cannot fall back to the main branch's unpooled URL.
   const migrate = spawnSync("pnpm exec prisma migrate deploy", {
-    env: { ...process.env, DATABASE_URL: testUrl },
+    env: { ...process.env, DATABASE_URL: testUrl, DATABASE_URL_UNPOOLED: testUrl },
     stdio: "inherit",
     shell: true,
   });

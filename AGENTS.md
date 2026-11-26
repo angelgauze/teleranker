@@ -504,7 +504,9 @@ A feature is ready when:
 Do not guess these decisions. Track and resolve them explicitly:
 
 - Final frontend, backend, and database stack — resolved 2026-11-19, see
-  `docs/adr/0001-tech-stack.md`. Hosting platform is still open.
+  `docs/adr/0001-tech-stack.md`. App hosting is still open; database hosting
+  is Neon (project `Teleranker`, branch `production`) as of 2026-11-25, see
+  `README.md` and `neon.ts`.
 - Package manager — pnpm proposed, not yet confirmed.
 - Exact providers and promo categories supported in the first release.
 - Exact definition of a promo's 4G/5G compatibility.
