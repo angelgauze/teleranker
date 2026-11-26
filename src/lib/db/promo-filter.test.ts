@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeValueMetrics } from "../ranking/value";
 import type { PromoInput } from "../schema/promo";
-import { buildPromoWhere, compatibilityValues, orderForListing } from "./promo-filter";
+import { buildPromoWhere, compatibilityValues, normalizeSearch, orderForListing } from "./promo-filter";
 
 describe("buildPromoWhere", () => {
   it("lists current and outdated promos by default, not unavailable ones", () => {
@@ -47,6 +47,38 @@ describe("buildPromoWhere", () => {
     expect(buildPromoWhere({ sort: "value", compatibility: "FIVE_G" }).compatibility).toEqual({
       in: ["FIVE_G", "FOUR_G_AND_FIVE_G"],
     });
+  });
+
+  it("searches promo and provider names, ignoring case", () => {
+    expect(buildPromoWhere({ sort: "value", search: "level-up" }).OR).toEqual([
+      { name: { contains: "level-up", mode: "insensitive" } },
+      { provider: { name: { contains: "level-up", mode: "insensitive" } } },
+    ]);
+  });
+
+  it("combines a search with the other filters", () => {
+    const where = buildPromoWhere({ sort: "value", search: "data", providerId: "dito" });
+    expect(where.providerId).toBe("dito");
+    expect(where.OR).toHaveLength(2);
+  });
+
+  it("adds no search condition without a search", () => {
+    expect(buildPromoWhere({ sort: "value" }).OR).toBeUndefined();
+  });
+});
+
+describe("normalizeSearch", () => {
+  it("trims and collapses spaces", () => {
+    expect(normalizeSearch("  level   up ")).toBe("level up");
+  });
+
+  it("treats blank input as no search", () => {
+    expect(normalizeSearch("   ")).toBeUndefined();
+    expect(normalizeSearch(undefined)).toBeUndefined();
+  });
+
+  it("caps very long input at 60 characters", () => {
+    expect(normalizeSearch("x".repeat(500))).toHaveLength(60);
   });
 });
 

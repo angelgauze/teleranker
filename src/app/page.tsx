@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
 
 // The listing depends on live database state, so it cannot be prerendered.
 export const instant = false;
+
+// The root layout's title template does not apply to the page beside it, so spell it out.
+export const metadata: Metadata = { title: { absolute: "Mobile promos · TeleRanker" } };
+import { CompareCheckbox, CompareSubmitButton, CompareTray } from "./_components/compare-picker";
 import { DatabaseNotice } from "./_components/database-notice";
 import { ProviderBadge } from "./_components/provider-badge";
 import { SourceLink } from "./_components/source-link";
@@ -11,6 +16,7 @@ import {
   type PromoFilter,
   type PublishedPromo,
 } from "@/lib/db/promos";
+import { normalizeSearch } from "@/lib/db/promo-filter";
 import { OUTDATED_AFTER_DAYS } from "@/lib/freshness";
 import { PAGE_SIZE, parseShowCount, showMoreHref } from "@/lib/ui/paging";
 import { parseBudgetRange, type BudgetRange } from "@/lib/money";
@@ -55,7 +61,7 @@ function first(value: string | string[] | undefined): string | undefined {
 
 /** Changes whenever any filter in the address changes, so the form shows the current filters. */
 function filterFormKey(params: Record<string, string | string[] | undefined>): string {
-  return ["provider", "min", "max", "compatibility", "sort", "inactive"]
+  return ["q", "provider", "min", "max", "compatibility", "sort", "inactive"]
     .map((name) => `${name}=${first(params[name]) ?? ""}`)
     .join("&");
 }
@@ -85,6 +91,7 @@ function parseFilter(params: Record<string, string | string[] | undefined>): {
       maxPriceCentavos: budget.maxCentavos,
       compatibility,
       includeInactive: first(params.inactive) === "1",
+      search: normalizeSearch(first(params.q)),
       sort,
     },
     budget,
@@ -125,13 +132,7 @@ function PromoRow({ entry }: { entry: PublishedPromo }) {
       }`}
     >
       <td className="float-right px-3 py-1 xl:float-none xl:table-cell xl:px-2 xl:py-3">
-        <input
-          type="checkbox"
-          name="id"
-          value={id}
-          aria-label={`Select ${promo.name} for comparison`}
-          className="size-5 xl:size-4"
-        />
+        <CompareCheckbox id={id} name={promo.name} className="size-5 xl:size-4" />
       </td>
       <th scope="row" className="block px-2 pt-1 pb-2 text-left font-medium xl:table-cell xl:py-3">
         {promo.name}
@@ -250,6 +251,22 @@ export default async function HomePage({
         action="/"
         className="mt-6 grid gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 lg:grid-cols-5 dark:border-zinc-800 dark:bg-zinc-900"
       >
+        <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-5">
+          <label htmlFor="q" className="text-sm font-medium">
+            Search promos
+          </label>
+          <input
+            id="q"
+            name="q"
+            type="search"
+            maxLength={60}
+            autoComplete="off"
+            placeholder="Level-Up"
+            defaultValue={filter.search ?? ""}
+            className={FIELD_CLASS}
+          />
+        </div>
+
         <div className="flex flex-col gap-1">
           <label htmlFor="provider" className="text-sm font-medium">
             Provider
@@ -395,6 +412,7 @@ export default async function HomePage({
         >
           <h2 className="text-base font-semibold">No published promos match these filters</h2>
           <p className="mt-1">
+            {filter.search ? `No promo or provider name contains "${filter.search}". ` : ""}
             Try widening the budget or choosing another provider or compatibility.
             {filter.includeInactive
               ? ""
@@ -424,12 +442,7 @@ export default async function HomePage({
                 ? " · showing promos whose 4G/5G compatibility is not yet verified"
                 : ""}
             </p>
-            <button
-              type="submit"
-              className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-            >
-              Compare selected (max 2)
-            </button>
+            <CompareSubmitButton className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800" />
           </div>
 
           <div className="mt-4 xl:overflow-x-auto">
@@ -515,6 +528,7 @@ export default async function HomePage({
           <li>&ldquo;4G and 5G&rdquo; promos work on any 4G (LTE) phone.</li>
         </ul>
       </section>
+      <CompareTray />
     </main>
   );
 }
