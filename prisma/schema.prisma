@@ -21,6 +21,8 @@ model Provider {
   id         String   @id
   name       String
   websiteUrl String?
+  /// General public promo page, linked for promos without their own source link.
+  promoPageUrl String?
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -62,6 +64,14 @@ enum PromoStatus {
   UNAVAILABLE
 }
 
+/// COLLECTED = published by an automated collector run.
+/// MANUAL = published from a manually compiled sheet (scripts/import-promos.ts).
+/// Whichever publishes last for a provider replaces that provider's active set.
+enum PromoOrigin {
+  COLLECTED
+  MANUAL
+}
+
 model Promo {
   id         String   @id @default(cuid())
   providerId String
@@ -86,10 +96,13 @@ model Promo {
   /// rollover, throttled data) so the uncertainty is preserved.
   dataNotes String?
 
-  /// Null when the validity period is not published. Null means unknown,
-  /// never zero.
+  /// Null when the validity period is not published or the promo never
+  /// expires. Null means unknown unless noExpiry is true, never zero.
   validityValue Int?
   validityUnit  ValidityUnit?
+  /// True when the provider states the promo never expires. Then
+  /// validityValue and validityUnit are null.
+  noExpiry      Boolean       @default(false)
 
   compatibility PromoCompatibility @default(UNKNOWN)
 
@@ -100,6 +113,8 @@ model Promo {
   textsIncluded  Int?
 
   status         PromoStatus @default(ACTIVE)
+  /// How the record was published: by a collector run or a manual import.
+  origin         PromoOrigin @default(COLLECTED)
   sourceUrl      String?
   lastVerifiedAt DateTime?
   /// Raw provider metadata kept for traceability.
