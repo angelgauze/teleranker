@@ -91,6 +91,13 @@ pnpm import:promos --file=<path.csv> --publish         # write to the database
 - When both list the same promo (same provider, name and price, ignoring case,
   spaces and punctuation), only the most recently checked copy is shown
   (`src/lib/db/promo-duplicates.ts`); the other stays stored.
+- **4G/5G from the sheet.** Provider pages rarely state 4G/5G per promo, so
+  scraped promos are "Not verified". When the shown scraped copy is "Not
+  verified" and the sheet has the same promo with a checked value, the site
+  shows the sheet's value, marked "Checked manually"; everything else stays as
+  scraped. A promo not yet in the sheet stays "Not verified" until someone
+  checks it on the provider's site, adds it to the sheet and re-imports. A
+  value the scraper did read is never replaced.
 - Sheet `promo_id`s start with the provider (`dito-data-10`); collector keys do
   not (`data-10`). A sheet ID the collector already uses is refused, and nothing
   is written.
@@ -119,9 +126,10 @@ Column mapping (`src/lib/manual/promo-sheet.ts`):
 
 ## Checked values on collected promos (overrides)
 
-For 4G/5G compatibility that a collector leaves "Not verified" (all DITO
-promos). The sheet is kept **outside this repository**, and every published run
-re-applies the stored values.
+Optional. The promo sheet already fills in 4G/5G for scraped promos it lists
+(see [Manual import](#manual-import)). Overrides are for collected promos the
+sheet does not list. The sheet is kept **outside this repository**, and every
+published run re-applies the stored values.
 
 ```bash
 pnpm overrides:template --provider=dito --out=<path.csv>   # pre-filled sheet

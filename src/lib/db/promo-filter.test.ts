@@ -51,7 +51,9 @@ describe("buildPromoWhere", () => {
   it("filters by compatibility after the query", () => {
     const filter = { sort: "value" as const, compatibility: "FIVE_G" as const };
     expect(matchesCompatibility("FIVE_G", filter)).toBe(true);
-    expect(matchesCompatibility("FOUR_G_AND_FIVE_G", filter)).toBe(true);
+    expect(matchesCompatibility("FOUR_G_AND_FIVE_G", filter)).toBe(false);
+    expect(matchesCompatibility("FIVE_G", { sort: "value", compatibility: "FOUR_G" })).toBe(false);
+    expect(matchesCompatibility("FOUR_G_AND_FIVE_G", { sort: "value", compatibility: "FOUR_G" })).toBe(true);
     expect(matchesCompatibility("UNKNOWN", filter)).toBe(false);
     expect(matchesCompatibility("UNKNOWN", { sort: "value" })).toBe(true);
   });
@@ -108,9 +110,9 @@ describe("normalizeSearch", () => {
 });
 
 describe("compatibilityValues", () => {
-  it("matches dual-network promos for a 4G or 5G filter", () => {
+  it("lets a 4G phone match dual-network promos, and keeps 5G phone only exact", () => {
     expect(compatibilityValues("FOUR_G")).toEqual(["FOUR_G", "FOUR_G_AND_FIVE_G"]);
-    expect(compatibilityValues("FIVE_G")).toEqual(["FIVE_G", "FOUR_G_AND_FIVE_G"]);
+    expect(compatibilityValues("FIVE_G")).toEqual(["FIVE_G"]);
   });
 
   it("matches dual-network and unverified promos only exactly", () => {

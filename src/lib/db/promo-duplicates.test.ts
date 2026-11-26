@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duplicateKey, hideDuplicates, isSamePromo, type ListedEntry } from "./promo-duplicates";
+import { duplicateKey, fillCompatibilityFromSheet, hideDuplicates, isSamePromo, type ListedEntry } from "./promo-duplicates";
 
 function entry(
   origin: ListedEntry["origin"],
@@ -73,5 +73,50 @@ describe("hideDuplicates", () => {
   it("never merges promos within one source", () => {
     const list = [entry("MANUAL", "Promo A", "2026-11-17"), entry("MANUAL", "Promo-A", "2026-11-18")];
     expect(hideDuplicates(list)).toEqual(list);
+  });
+});
+
+describe("fillCompatibilityFromSheet", () => {
+  const row = (
+    origin: "COLLECTED" | "MANUAL",
+    compatibility: "UNKNOWN" | "FOUR_G_AND_FIVE_G" | "FIVE_G",
+    extra: Partial<ListedEntry["promo"]> = {},
+  ) => ({
+    origin,
+    promo: {
+      providerId: "globe",
+      name: "Go+109",
+      priceCentavos: 10900,
+      status: "ACTIVE" as const,
+      lastVerifiedAt: new Date("2026-11-26"),
+      compatibility,
+      ...extra,
+    },
+  });
+
+  it("shows the sheet's checked value for an unverified scraped promo", () => {
+    const scraped = row("COLLECTED", "UNKNOWN");
+    const [filled] = fillCompatibilityFromSheet([scraped], [scraped, row("MANUAL", "FOUR_G_AND_FIVE_G", { name: "GO+ 109" })]);
+    expect(filled.promo.compatibility).toBe("FOUR_G_AND_FIVE_G");
+    expect(filled.compatibilityCheckedManually).toBe(true);
+    expect(scraped.promo.compatibility).toBe("UNKNOWN"); // the input is not changed
+  });
+
+  it("keeps a new promo that is not in the sheet as Not verified", () => {
+    const scraped = row("COLLECTED", "UNKNOWN", { name: "Go+999", priceCentavos: 99900 });
+    const [kept] = fillCompatibilityFromSheet([scraped], [scraped, row("MANUAL", "FOUR_G_AND_FIVE_G")]);
+    expect(kept.promo.compatibility).toBe("UNKNOWN");
+    expect(kept.compatibilityCheckedManually).toBeUndefined();
+  });
+
+  it("never replaces a value the scraper read, and ignores unchecked or withdrawn sheet rows", () => {
+    const read = row("COLLECTED", "FIVE_G");
+    expect(fillCompatibilityFromSheet([read], [row("MANUAL", "FOUR_G_AND_FIVE_G")])[0].promo.compatibility).toBe("FIVE_G");
+    const scraped = row("COLLECTED", "UNKNOWN");
+    expect(fillCompatibilityFromSheet([scraped], [row("MANUAL", "UNKNOWN")])[0].promo.compatibility).toBe("UNKNOWN");
+    expect(
+      fillCompatibilityFromSheet([scraped], [row("MANUAL", "FOUR_G_AND_FIVE_G", { status: "UNAVAILABLE" })])[0].promo
+        .compatibility,
+    ).toBe("UNKNOWN");
   });
 });

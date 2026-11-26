@@ -106,6 +106,27 @@ describe.skipIf(!testUrl)("provider page loaders against PostgreSQL", () => {
     });
   });
 
+  it("counts a promo in both sources once, with the sheet's 4G/5G when the scraper has none", async () => {
+    const run = {
+      providerId: "beta",
+      startedAt: new Date(),
+      completedAt: new Date(),
+      status: "SUCCEEDED" as const,
+      recordsCollected: 1,
+      recordsAccepted: 1,
+      recordsRejected: 0,
+      published: true,
+      rejections: [],
+    };
+    // The same promo (name and price) as beta's sheet row "m", scraped without 4G/5G.
+    await repository.publishRun(run, [
+      promo("beta", "scraped-m", { name: "Test promo m", priceCentavos: 29900, compatibility: "UNKNOWN" }),
+    ]);
+    const beta = (await loadProviderOverview("beta", prisma)).provider!;
+    expect(beta.summary.current).toBe(1);
+    expect(beta.summary.compatibility).toMatchObject({ FOUR_G_AND_FIVE_G: 1, UNKNOWN: 0 });
+  });
+
   it("loads one provider, or null for an unknown or inactive one", async () => {
     expect((await loadProviderOverview("alpha", prisma)).provider?.summary.current).toBe(1);
     expect(await loadProviderOverview("gamma", prisma)).toEqual({ provider: null, databaseUnavailable: false });

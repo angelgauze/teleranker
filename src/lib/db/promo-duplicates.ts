@@ -1,4 +1,4 @@
-import type { PromoInput, PromoOrigin } from "../schema/promo";
+import type { PromoCompatibility, PromoInput, PromoOrigin } from "../schema/promo";
 
 /**
  * Collected and hand-entered promos are listed side by side. When the same
@@ -44,6 +44,51 @@ function outranks(a: ListedEntry, b: ListedEntry): boolean {
  * Drops the losing source's copies of promos that both sources list. Promos
  * found in one source only are always kept, and the input order is preserved.
  */
+/** A listed row whose 4G/5G support may be filled in from the sheet. */
+export interface CompatibilityEntry {
+  origin: PromoOrigin;
+  promo: ListedEntry["promo"] & { compatibility: PromoCompatibility };
+}
+
+/**
+ * The sheet supports the collectors: a scraped promo whose 4G/5G support the
+ * provider's page does not state ("Not verified") shows the value a person
+ * checked for the same promo in the sheet (same provider, name and price).
+ * The scraped copy keeps everything else. A promo that is not in the sheet,
+ * or whose sheet row is not checked either, stays "Not verified"; nothing is
+ * guessed. A value the scraper did read is never replaced.
+ *
+ * `candidates` are every stored row that may hold the checked value (for the
+ * listing, the rows before duplicates were hidden). Filled entries are marked
+ * with `compatibilityCheckedManually` so the page can say where it came from.
+ */
+export function fillCompatibilityFromSheet<T extends CompatibilityEntry>(
+  shown: T[],
+  candidates: readonly CompatibilityEntry[],
+): Array<T & { compatibilityCheckedManually?: true }> {
+  const checked = new Map<string, CompatibilityEntry>();
+  for (const candidate of candidates) {
+    if (candidate.origin !== "MANUAL" || candidate.promo.compatibility === "UNKNOWN") continue;
+    if (candidate.promo.status === "UNAVAILABLE") continue;
+    const key = duplicateKey(candidate.promo);
+    const current = checked.get(key);
+    const newer =
+      (candidate.promo.lastVerifiedAt?.getTime() ?? Number.NEGATIVE_INFINITY) >
+      (current?.promo.lastVerifiedAt?.getTime() ?? Number.NEGATIVE_INFINITY);
+    if (!current || newer) checked.set(key, candidate);
+  }
+  return shown.map((entry) => {
+    if (entry.origin !== "COLLECTED" || entry.promo.compatibility !== "UNKNOWN") return entry;
+    const sheet = checked.get(duplicateKey(entry.promo));
+    if (!sheet) return entry;
+    return {
+      ...entry,
+      promo: { ...entry.promo, compatibility: sheet.promo.compatibility },
+      compatibilityCheckedManually: true as const,
+    };
+  });
+}
+
 export function hideDuplicates<T extends ListedEntry>(entries: T[]): T[] {
   const best = new Map<string, T>();
   const origins = new Map<string, Set<PromoOrigin>>();
