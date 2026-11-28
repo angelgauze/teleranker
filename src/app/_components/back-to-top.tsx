@@ -5,17 +5,17 @@ import { COMPARE_TRAY_ID } from "./compare-picker";
 
 /**
  * Round arrow button in the bottom-right corner. Appears after about one
- * screen of scrolling and sits above the compare tray when the tray is open.
+ * screen of scrolling, and hides while the compare bar is open so it never
+ * covers the Compare button.
  */
 export function BackToTop() {
   const [visible, setVisible] = useState(false);
-  const [bottom, setBottom] = useState(16);
+  const bottom = 16;
 
   useEffect(() => {
     const update = () => {
-      setVisible(window.scrollY > window.innerHeight);
-      const tray = document.getElementById(COMPARE_TRAY_ID);
-      setBottom((tray?.offsetHeight ?? 0) + 16);
+      const trayOpen = document.getElementById(COMPARE_TRAY_ID) !== null;
+      setVisible(window.scrollY > window.innerHeight && !trayOpen);
     };
     update();
     window.addEventListener("scroll", update, { passive: true });
@@ -42,7 +42,7 @@ export function BackToTop() {
         window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
       }}
       style={{ bottom }}
-      className="fixed right-4 z-30 flex size-11 items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-900 shadow-md hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 sm:right-6 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+      className="fixed right-4 z-30 flex size-11 items-center justify-center rounded-full border border-line-strong bg-raised text-fg hover:bg-selected sm:shadow-[0_8px_24px_rgb(0_0_0/0.5)] focus-visible:outline-2 focus-visible:outline-offset-2 sm:right-6"
     >
       <svg
         aria-hidden="true"

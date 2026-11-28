@@ -1,14 +1,64 @@
 @import "tailwindcss";
 
+/* Dark only for the first release (docs/DESIGN.md): the dark styles always apply. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+    var(--font-inter), -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 }
 
+/* Monochrome cool greys (docs/DESIGN.md, Colour). The logo's amber is the only colour. */
+@theme {
+  --color-canvas: #0e1014;
+  --color-surface: #121419;
+  --color-raised: #1a1e24;
+  --color-selected: #2a2f38;
+  /* The Compare pop-up's panel, and the band behind rows where one promo is ahead. */
+  --color-panel: #15181d;
+  --color-band: #181b21;
+  --color-line-soft: #1c2027;
+  --color-line: #252a32;
+  --color-line-strong: #3a414d;
+  --color-fg: #f3f4f6;
+  --color-fg-2: #c9ced6;
+  --color-fg-3: #a4aab4;
+  --color-fg-4: #8a919c;
+}
+
+html {
+  color-scheme: dark;
+  background-color: var(--color-canvas);
+}
+
 body {
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: var(--color-line-strong);
+  color: var(--color-fg);
+}
+
+:focus-visible {
+  outline-color: var(--color-fg-2);
+}
+
+* {
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+input,
+textarea {
+  caret-color: var(--color-fg);
+}
+
+/* Native top-layer panels (menu, filters sheet, help) share one backdrop. */
+[popover]::backdrop {
+  background-color: rgb(5 6 8 / 0.6);
 }

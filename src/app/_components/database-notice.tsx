@@ -3,9 +3,15 @@ export function DatabaseNotice() {
   return (
     <section
       role="status"
-      className="mt-8 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
+      className="mt-8 rounded-xl border border-line-strong bg-surface p-5 text-sm leading-relaxed text-fg-2"
     >
-      <h2 className="font-semibold">Database not available</h2>
+      <h2 className="flex items-center gap-2 font-[590] text-fg">
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 9v4M12 17h.01" />
+          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        </svg>
+        Database not available
+      </h2>
       <p className="mt-1">The promo database is not configured or cannot be reached.</p>
       <p className="mt-2">To fix it:</p>
       <ol className="mt-1 list-decimal space-y-1 pl-5">

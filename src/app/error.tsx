@@ -4,38 +4,39 @@ import Link from "next/link";
 import { useEffect } from "react";
 
 /**
- * Fallback for unexpected errors while rendering a page. Expected problems
- * (database not configured or unreachable) are handled inside the pages; this
- * covers everything else. No error details are shown to users.
+ * Fallback for unexpected errors while rendering a page: a bare page (no site
+ * header). Expected problems (database not configured or unreachable) are
+ * handled inside the pages. No error details are shown to users.
  */
 export default function ErrorPage({ error, retry }: { error: unknown; retry: () => void }) {
   useEffect(() => {
     console.error(error);
+    // An error boundary can't export metadata, so name the tab here.
+    document.title = "Something went wrong · TeleRanker";
   }, [error]);
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
-      <section
-        role="alert"
-        className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-200"
-      >
-        <h1 className="text-lg font-semibold">Something went wrong</h1>
-        <p className="mt-1 text-sm">
-          The page could not be displayed. Published promo data is not affected. Try again, or go
-          back to the listing.
+    <main data-bare className="flex flex-1 items-center justify-center px-4 py-16">
+      <div className="w-full max-w-[19rem]">
+        <h1 className="text-xl leading-tight font-[590] tracking-[-0.02em] text-fg">Something went wrong</h1>
+        <p role="alert" className="mt-2 text-[15px] leading-relaxed text-fg-3">
+          This page could not be displayed. Published promo details are not affected.
         </p>
-      </section>
-      <div className="mt-4 flex items-center gap-4">
-        <button
-          type="button"
-          onClick={() => retry()}
-          className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
-          Try again
-        </button>
-        <Link href="/" className="text-sm underline underline-offset-2">
-          Back to the listing
-        </Link>
+        <div className="mt-6 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => retry()}
+            className="h-11 rounded-lg bg-fg px-5 text-sm font-[590] text-canvas hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
+            Try again
+          </button>
+          <Link
+            href="/"
+            className="inline-flex h-11 items-center rounded-lg border border-line bg-surface px-5 text-sm font-medium text-fg hover:border-line-strong focus-visible:outline-2"
+          >
+            Back to promos
+          </Link>
+        </div>
       </div>
     </main>
   );
