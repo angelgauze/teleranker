@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeValueMetrics } from "../ranking/value";
 import type { PromoInput } from "../schema/promo";
-import { describeDifferences, displayNames, type ComparedPromo } from "./differences";
+import { describeDifferences, displayNames, summarizeDifferences, type ComparedPromo } from "./differences";
 
 function entry(label: string, overrides: Partial<PromoInput> = {}): ComparedPromo {
   const promo: PromoInput = {
@@ -96,5 +96,45 @@ describe("displayNames", () => {
   it("never returns the same name twice", () => {
     const [a, b] = displayNames(named("Go+109"), named("Go+109"));
     expect(a).not.toBe(b);
+  });
+});
+
+describe("summarizeDifferences", () => {
+  it("groups what each promo does better into one line", () => {
+    const a = entry("A", { priceCentavos: 7000, dataGb: 8, validityValue: 7 });
+    const b = entry("B", { priceCentavos: 9900, dataGb: 12.5, validityValue: 30, compatibility: "FIVE_G" });
+    expect(summarizeDifferences(a, b)).toEqual([
+      { kind: "ahead", name: "A", text: "₱29 cheaper" },
+      { kind: "ahead", name: "B", text: "4.50 GB more all-access data, 23 days longer and more data per peso" },
+      { kind: "different", text: "Different 4G/5G support: A 4G and 5G; B 5G only" },
+    ]);
+  });
+
+  it("puts every matching field on one line", () => {
+    expect(summarizeDifferences(entry("A"), entry("B"))).toEqual([
+      { kind: "same", text: "Same price, all-access data, validity, data per peso and 4G/5G support" },
+    ]);
+  });
+
+  it("names what can't be compared instead of treating it as zero", () => {
+    const a = entry("A", { dataKind: "UNKNOWN", dataGb: undefined });
+    const lines = summarizeDifferences(a, entry("B"));
+    expect(lines).toContainEqual({ kind: "unknown", text: "Can’t compare data and data per peso: not published for A" });
+    expect(lines).toContainEqual({ kind: "same", text: "Same price, validity and 4G/5G support" });
+  });
+
+  it("counts unlimited data and no expiry as ahead", () => {
+    const a = entry("A", {
+      dataKind: "UNLIMITED",
+      dataGb: undefined,
+      noExpiry: true,
+      validityValue: undefined,
+      validityUnit: undefined,
+    });
+    expect(summarizeDifferences(a, entry("B"))[0]).toEqual({
+      kind: "ahead",
+      name: "A",
+      text: "unlimited data and no expiry",
+    });
   });
 });

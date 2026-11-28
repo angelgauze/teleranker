@@ -20,7 +20,7 @@ export function SourceLink({
   const link = sourceLinkFor(sourceUrl, providerName, providerPromoPageUrl);
 
   if (!link) {
-    return <span className="text-zinc-600 dark:text-zinc-400">No source link</span>;
+    return <span className="text-fg-3">No source link</span>;
   }
 
   return (
@@ -29,13 +29,11 @@ export function SourceLink({
         href={link.href}
         target="_blank"
         rel="noopener noreferrer"
-        className="underline underline-offset-2"
+        className="text-fg-2 underline underline-offset-4 hover:text-fg"
       >
         {link.label}
       </a>
-      {link.note && !compact ? (
-        <span className="block text-xs text-zinc-500 dark:text-zinc-400">{link.note}</span>
-      ) : null}
+      {link.note && !compact ? <span className="mt-0.5 block text-[11px] text-fg-4 md:text-xs">{link.note}</span> : null}
     </>
   );
 }

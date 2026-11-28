@@ -28,7 +28,7 @@ export function fourGPhoneSupport(compatibility: PromoCompatibility): string {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3: "Plan for my needs"
+// Phase 3: "Plan for your needs"
 
 export const NEEDS_LIMITS = {
   days: { min: 1, max: 365 },
