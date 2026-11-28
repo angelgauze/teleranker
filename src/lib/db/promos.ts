@@ -7,7 +7,13 @@ import { computeValueMetrics, type ScoredPromo } from "../ranking/value";
 import type { PromoInput, PromoOrigin } from "../schema/promo";
 import { describeCollectionStatus, type CollectionStatus } from "../ui/collection-status";
 import { duplicateKey, fillCompatibilityFromSheet, hideDuplicates } from "./promo-duplicates";
-import { buildPromoWhere, matchesCompatibility, orderForListing, type PromoFilter } from "./promo-filter";
+import {
+  buildPromoWhere,
+  matchesCompatibility,
+  matchesValidity,
+  orderForListing,
+  type PromoFilter,
+} from "./promo-filter";
 
 export type { PromoFilter } from "./promo-filter";
 
@@ -93,12 +99,15 @@ export async function loadListing(filter: PromoFilter): Promise<ListingResult> {
       }),
     ]);
 
-    // Hide duplicates, fill unverified 4G/5G from the sheet, then filter by 4G/5G.
+    // Hide duplicates, fill unverified 4G/5G from the sheet, then filter by 4G/5G and validity.
     const all = rows.map((row) => toPublished(row, now));
     const shown = fillCompatibilityFromSheet(hideDuplicates(all), all);
     return {
       promos: orderForListing(
-        shown.filter(({ promo }) => matchesCompatibility(promo.compatibility, filter)),
+        shown.filter(
+          ({ promo }) =>
+            matchesCompatibility(promo.compatibility, filter) && matchesValidity(promo, filter),
+        ),
         filter.sort,
       ),
       providers,

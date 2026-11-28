@@ -102,6 +102,28 @@ export function formatTexts(
 }
 
 /**
+ * Calls and texts in one short phrase for narrow screens: "60 min calls ·
+ * Limited texts". Unknown, none and limited stay distinct; only the
+ * "(not stated)" detail is left to the full view.
+ */
+export function formatCallsTextsShort(
+  promo: Pick<PromoInput, "callsUnlimited" | "callsIncluded" | "textsUnlimited" | "textsIncluded">,
+): string {
+  const calls = formatCalls(promo);
+  const texts = formatTexts(promo);
+  if (calls === "Unlimited" && texts === "Unlimited") return "Unlimited calls and texts";
+  if (calls === "Unknown" && texts === "Unknown") return "Calls and texts unknown";
+  const part = (value: string, noun: "calls" | "texts") => {
+    if (value === "Unknown") return `${noun === "calls" ? "Calls" : "Texts"} unknown`;
+    if (value === "None") return `No ${noun}`;
+    if (value.startsWith("Limited")) return `Limited ${noun}`;
+    if (value === "Unlimited") return `Unlimited ${noun}`;
+    return noun === "calls" ? `${value} calls` : value;
+  };
+  return `${part(calls, "calls")} · ${part(texts, "texts")}`;
+}
+
+/**
  * Headline data allowance. Unlimited, none and unknown are labelled, never
  * shown as a number or as zero.
  */

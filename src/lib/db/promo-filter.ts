@@ -1,13 +1,26 @@
 import type { Prisma } from "../../generated/prisma/client";
-import { sortScored, type ScoredPromo, type SortKey } from "../ranking/value";
-import type { PromoCompatibility } from "../schema/promo";
+import { sortScored, validityToDays, type ScoredPromo, type SortKey } from "../ranking/value";
+import type { PromoCompatibility, PromoInput } from "../schema/promo";
+
+/**
+ * How long a promo lasts, in the groups the listing filters by. Promos with an
+ * unknown validity belong to no group, so they only show when no group is picked.
+ */
+export const VALIDITY_BANDS = ["1-3", "4-7", "8-30", "31+", "no-expiry"] as const;
+export type ValidityBand = (typeof VALIDITY_BANDS)[number];
+
+/** Most providers one filter may name; more is ignored, so a crafted address stays cheap. */
+export const MAX_PROVIDER_FILTER = 10;
 
 export interface PromoFilter {
-  providerId?: string;
+  /** Matches promos from any of these providers (one or several). */
+  providerIds?: string[];
   minPriceCentavos?: number;
   maxPriceCentavos?: number;
   /** Matches promos that work on that network generation. */
   compatibility?: PromoCompatibility;
+  /** Matches promos whose validity falls in this group. */
+  validity?: ValidityBand;
   /**
    * Also list promos that are no longer offered (UNAVAILABLE). Off by default.
    * Outdated promos are always listed, marked and after current ones.
@@ -47,6 +60,45 @@ export function matchesCompatibility(compatibility: PromoCompatibility, filter: 
 }
 
 /**
+ * Provider ids from the address (`?provider=smart&provider=globe`): trimmed,
+ * without blanks or repeats, at most MAX_PROVIDER_FILTER.
+ */
+export function parseProviderIds(raw: string | string[] | undefined): string[] {
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const ids = values.map((value) => value.trim()).filter((value) => value !== "");
+  return [...new Set(ids)].slice(0, MAX_PROVIDER_FILTER);
+}
+
+/** The validity group from an address value, or undefined for anything else. */
+export function parseValidityBand(raw: string | undefined): ValidityBand | undefined {
+  return VALIDITY_BANDS.find((band) => band === raw);
+}
+
+/**
+ * The group a promo's validity falls in, or null when its validity is unknown.
+ * Weeks and months count as 7 and 30 days, as in the ranking.
+ */
+export function validityBand(
+  promo: Pick<PromoInput, "validityValue" | "validityUnit" | "noExpiry">,
+): ValidityBand | null {
+  if (promo.noExpiry) return "no-expiry";
+  const days = validityToDays(promo.validityValue, promo.validityUnit);
+  if (days === null) return null;
+  if (days <= 3) return "1-3";
+  if (days <= 7) return "4-7";
+  if (days <= 30) return "8-30";
+  return "31+";
+}
+
+/** True when a promo passes the validity filter (always true without one). */
+export function matchesValidity(
+  promo: Pick<PromoInput, "validityValue" | "validityUnit" | "noExpiry">,
+  filter: PromoFilter,
+): boolean {
+  return !filter.validity || validityBand(promo) === filter.validity;
+}
+
+/**
  * Builds the listing query. Pure, so the filter rules can be unit tested.
  *
  * The 4G/5G filter is not part of the query: it runs after duplicates are
@@ -61,7 +113,9 @@ export function buildPromoWhere(filter: PromoFilter): Prisma.PromoWhereInput {
     ? {}
     : { status: { in: ["ACTIVE", "OUTDATED"] } };
 
-  if (filter.providerId) where.providerId = filter.providerId;
+  const providerIds = filter.providerIds ?? [];
+  if (providerIds.length === 1) where.providerId = providerIds[0];
+  else if (providerIds.length > 1) where.providerId = { in: providerIds };
 
   if (filter.minPriceCentavos !== undefined || filter.maxPriceCentavos !== undefined) {
     where.priceCentavos = {

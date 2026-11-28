@@ -2,7 +2,36 @@ import { describe, expect, it } from "vitest";
 import { computeValueMetrics } from "../ranking/value";
 import type { PromoInput } from "../schema/promo";
 import { hideDuplicates } from "./promo-duplicates";
-import { buildPromoWhere, compatibilityValues, matchesCompatibility, normalizeSearch, orderForListing } from "./promo-filter";
+import {
+  buildPromoWhere,
+  compatibilityValues,
+  matchesCompatibility,
+  matchesValidity,
+  normalizeSearch,
+  orderForListing,
+  MAX_PROVIDER_FILTER,
+  parseProviderIds,
+  parseValidityBand,
+  validityBand,
+  VALIDITY_BANDS,
+} from "./promo-filter";
+
+describe("parseProviderIds", () => {
+  it("reads one or several providers from the address", () => {
+    expect(parseProviderIds("dito")).toEqual(["dito"]);
+    expect(parseProviderIds(["smart", "globe"])).toEqual(["smart", "globe"]);
+  });
+
+  it("drops blanks and repeats, and treats nothing as no filter", () => {
+    expect(parseProviderIds(["smart", " ", "smart", " globe "])).toEqual(["smart", "globe"]);
+    expect(parseProviderIds(undefined)).toEqual([]);
+  });
+
+  it("keeps at most the allowed number of providers", () => {
+    const many = Array.from({ length: MAX_PROVIDER_FILTER + 5 }, (_, index) => `p${index}`);
+    expect(parseProviderIds(many)).toHaveLength(MAX_PROVIDER_FILTER);
+  });
+});
 
 describe("buildPromoWhere", () => {
   it("lists current and outdated promos by default, not unavailable ones", () => {
@@ -12,15 +41,25 @@ describe("buildPromoWhere", () => {
   it("drops the status condition when inactive promos are included", () => {
     expect(buildPromoWhere({ sort: "value", includeInactive: true })).toEqual({});
     expect(
-      buildPromoWhere({ sort: "value", includeInactive: true, providerId: "dito" }),
+      buildPromoWhere({ sort: "value", includeInactive: true, providerIds: ["dito"] }),
     ).toEqual({ providerId: "dito" });
   });
 
-  it("filters by provider", () => {
-    expect(buildPromoWhere({ sort: "value", providerId: "dito" })).toEqual({
+  it("filters by one provider", () => {
+    expect(buildPromoWhere({ sort: "value", providerIds: ["dito"] })).toEqual({
       status: { in: ["ACTIVE", "OUTDATED"] },
       providerId: "dito",
     });
+  });
+
+  it("filters by several providers at once", () => {
+    expect(buildPromoWhere({ sort: "value", providerIds: ["smart", "globe"] }).providerId).toEqual({
+      in: ["smart", "globe"],
+    });
+  });
+
+  it("does not filter by provider when none is picked", () => {
+    expect(buildPromoWhere({ sort: "value", providerIds: [] })).not.toHaveProperty("providerId");
   });
 
   it("applies an inclusive budget range in centavos", () => {
@@ -84,7 +123,7 @@ describe("buildPromoWhere", () => {
   });
 
   it("combines a search with the other filters", () => {
-    const where = buildPromoWhere({ sort: "value", search: "data", providerId: "dito" });
+    const where = buildPromoWhere({ sort: "value", search: "data", providerIds: ["dito"] });
     expect(where.providerId).toBe("dito");
     expect(where.OR).toHaveLength(2);
   });
@@ -123,6 +162,56 @@ describe("compatibilityValues", () => {
   it("never treats unverified promos as 4G or 5G", () => {
     expect(compatibilityValues("FOUR_G")).not.toContain("UNKNOWN");
     expect(compatibilityValues("FIVE_G")).not.toContain("UNKNOWN");
+  });
+});
+
+describe("validity filter", () => {
+  const days = (validityValue: number, validityUnit: "DAY" | "WEEK" | "MONTH" = "DAY") => ({
+    validityValue,
+    validityUnit,
+  });
+
+  it("puts day counts into the listing's groups, inclusive at each edge", () => {
+    expect(validityBand(days(1))).toBe("1-3");
+    expect(validityBand(days(3))).toBe("1-3");
+    expect(validityBand(days(4))).toBe("4-7");
+    expect(validityBand(days(7))).toBe("4-7");
+    expect(validityBand(days(8))).toBe("8-30");
+    expect(validityBand(days(30))).toBe("8-30");
+    expect(validityBand(days(31))).toBe("31+");
+    expect(validityBand(days(360))).toBe("31+");
+  });
+
+  it("counts weeks as 7 days and months as 30, like the ranking", () => {
+    expect(validityBand(days(1, "WEEK"))).toBe("4-7");
+    expect(validityBand(days(2, "WEEK"))).toBe("8-30");
+    expect(validityBand(days(1, "MONTH"))).toBe("8-30");
+    expect(validityBand(days(2, "MONTH"))).toBe("31+");
+  });
+
+  it("keeps no-expiry promos apart from unknown validity", () => {
+    expect(validityBand({ noExpiry: true })).toBe("no-expiry");
+    expect(validityBand({})).toBeNull();
+  });
+
+  it("shows unknown validity only when no group is picked", () => {
+    expect(matchesValidity({}, { sort: "value" })).toBe(true);
+    for (const band of VALIDITY_BANDS) {
+      expect(matchesValidity({}, { sort: "value", validity: band })).toBe(false);
+    }
+  });
+
+  it("matches only the picked group", () => {
+    expect(matchesValidity(days(7), { sort: "value", validity: "4-7" })).toBe(true);
+    expect(matchesValidity(days(7), { sort: "value", validity: "8-30" })).toBe(false);
+    expect(matchesValidity({ noExpiry: true }, { sort: "value", validity: "no-expiry" })).toBe(true);
+  });
+
+  it("reads only known groups from the address", () => {
+    expect(parseValidityBand("8-30")).toBe("8-30");
+    expect(parseValidityBand("31+")).toBe("31+");
+    expect(parseValidityBand("forever")).toBeUndefined();
+    expect(parseValidityBand(undefined)).toBeUndefined();
   });
 });
 
