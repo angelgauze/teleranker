@@ -39,7 +39,8 @@ describe("showMoreHref", () => {
     expect(showMoreHref({}, 24)).toBe("/?show=48");
   });
 
-  it("uses the first value of a repeated parameter", () => {
-    expect(showMoreHref({ provider: ["dito", "globe"] }, 48)).toBe("/?provider=dito&show=72");
+  it("keeps every value of a repeated filter (several providers)", () => {
+    expect(showMoreHref({ provider: ["dito", "globe"] }, 48)).toBe("/?provider=dito&provider=globe&show=72");
   });
 });
+
