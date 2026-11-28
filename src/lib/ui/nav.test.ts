@@ -19,11 +19,11 @@ describe("isCurrentPath", () => {
 });
 
 describe("NAV_ITEMS", () => {
-  it("lists Promos, Providers and Compare in order", () => {
+  it("lists Promos, Providers and Plan in order; Compare opens from the listing instead", () => {
     expect(NAV_ITEMS).toEqual([
       { href: "/", label: "Promos" },
       { href: "/providers", label: "Providers" },
-      { href: "/compare", label: "Compare" },
+      { href: "/plan", label: "Plan" },
     ]);
   });
 });

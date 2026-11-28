@@ -7,7 +7,7 @@ export function ProviderBadge({ name, link = false }: { name: string; link?: boo
   const linkClass = link ? " underline underline-offset-2" : "";
   return (
     <span
-      className={`inline-block rounded border border-zinc-300 px-1.5 py-0.5 text-xs font-medium tracking-wide text-zinc-700 uppercase dark:border-zinc-700 dark:text-zinc-300${linkClass}`}
+      className={`inline-block rounded-md border border-line-strong px-1.5 text-[11px] leading-[18px] font-medium tracking-[0.04em] text-fg-3 uppercase${linkClass}`}
     >
       {name}
     </span>

@@ -17,16 +17,22 @@ export function parseShowCount(raw: string | undefined): number {
   return Math.min(Math.ceil(requested / PAGE_SIZE) * PAGE_SIZE, MAX_SHOWN);
 }
 
+/** The current filters, every value of a repeated one (several providers), without `show`. */
+function filterQuery(params: Record<string, string | string[] | undefined>): URLSearchParams {
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries(params)) {
+    if (name === "show") continue;
+    for (const one of Array.isArray(value) ? value : [value]) if (one) query.append(name, one);
+  }
+  return query;
+}
+
 /** The listing address with the same filters and one more batch shown. */
 export function showMoreHref(
   params: Record<string, string | string[] | undefined>,
   shown: number,
 ): string {
-  const query = new URLSearchParams();
-  for (const [name, value] of Object.entries(params)) {
-    const first = Array.isArray(value) ? value[0] : value;
-    if (name !== "show" && first) query.set(name, first);
-  }
+  const query = filterQuery(params);
   query.set("show", String(shown + PAGE_SIZE));
   return `/?${query.toString()}`;
 }

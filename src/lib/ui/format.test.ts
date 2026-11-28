@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROMO_ORIGINS, PROMO_STATUSES } from "../schema/promo";
-import { COMPATIBILITY_NOTES, formatCalls, formatChecked, formatDataAllocation, formatPerDay, formatStatus, sourceLinkFor, formatTexts, formatValidity, ORIGIN_LABELS, STATUS_LABELS } from "./format";
+import { COMPATIBILITY_NOTES, formatCalls, formatCallsTextsShort, formatChecked, formatDataAllocation, formatPerDay, formatStatus, sourceLinkFor, formatTexts, formatValidity, ORIGIN_LABELS, STATUS_LABELS } from "./format";
 
 describe("formatStatus", () => {
   it("labels every status", () => {
@@ -39,6 +39,26 @@ describe("formatCalls and formatTexts", () => {
     expect(formatTexts({ textsIncluded: 50 })).toBe("50 texts");
     expect(formatTexts({ textsUnlimited: false })).toBe("Limited (count not stated)");
     expect(formatTexts({})).toBe("Unknown");
+  });
+});
+
+describe("formatCallsTextsShort", () => {
+  it("joins both unlimited into one phrase", () => {
+    expect(formatCallsTextsShort({ callsUnlimited: true, textsUnlimited: true })).toBe(
+      "Unlimited calls and texts",
+    );
+  });
+
+  it("keeps unknown, none, limited and counts distinct", () => {
+    expect(formatCallsTextsShort({ textsUnlimited: true })).toBe("Calls unknown · Unlimited texts");
+    expect(formatCallsTextsShort({ callsIncluded: 60, textsUnlimited: false })).toBe(
+      "60 min calls · Limited texts",
+    );
+    expect(formatCallsTextsShort({ callsIncluded: 0, textsIncluded: 50 })).toBe("No calls · 50 texts");
+    expect(formatCallsTextsShort({ callsUnlimited: false, textsIncluded: 0 })).toBe(
+      "Limited calls · No texts",
+    );
+    expect(formatCallsTextsShort({})).toBe("Calls and texts unknown");
   });
 });
 

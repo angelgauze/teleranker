@@ -6,27 +6,30 @@ import { connection } from "next/server";
 export const instant = false;
 
 // The root layout's title template does not apply to the page beside it, so spell it out.
-export const metadata: Metadata = { title: { absolute: "Mobile promos · TeleRanker" } };
-import { CompareCheckbox, CompareSubmitButton, CompareTray } from "./_components/compare-picker";
+export const metadata: Metadata = { title: { absolute: "Promos · TeleRanker" } };
+import { CompareCheckbox, CompareTray } from "./_components/compare-picker";
+import { HashScroll } from "./_components/hash-scroll";
 import { DatabaseNotice } from "./_components/database-notice";
-import { ProviderBadge } from "./_components/provider-badge";
-import { SourceLink } from "./_components/source-link";
+import { ListingControls, type ListingValues } from "./_components/listing-controls";
+import { SortMenu } from "./_components/sort-menu";
 import {
   loadListing,
   type PromoFilter,
   type PublishedPromo,
 } from "@/lib/db/promos";
-import { normalizeSearch } from "@/lib/db/promo-filter";
+import {
+  normalizeSearch,
+  parseProviderIds,
+  parseValidityBand,
+  type ValidityBand,
+} from "@/lib/db/promo-filter";
 import { OUTDATED_AFTER_DAYS } from "@/lib/freshness";
 import { PAGE_SIZE, parseShowCount, showMoreHref } from "@/lib/ui/paging";
 import { parseBudgetRange, type BudgetRange } from "@/lib/money";
 import type { SortKey } from "@/lib/ranking/value";
 import type { PromoCompatibility } from "@/lib/schema/promo";
 import {
-  COMPATIBILITY_LABELS,
-  COMPATIBILITY_NOTES,
   formatCalls,
-  formatChecked,
   formatDataAllocation,
   formatGb,
   formatPerDay,
@@ -34,17 +37,26 @@ import {
   formatStatus,
   formatTexts,
   formatValidity,
+  sourceLinkFor,
 } from "@/lib/ui/format";
+import { topValue, valueBarPercent } from "@/lib/ui/value-bar";
 
 const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
-  { value: "value", label: "Most all-access GB per ₱100" },
-  { value: "price", label: "Lowest price first" },
-  { value: "data", label: "Most data first" },
-  { value: "validity", label: "Longest validity first" },
+  { value: "value", label: "Most GB per ₱100" },
+  { value: "price", label: "Lowest price" },
+  { value: "data", label: "Most data" },
+  { value: "validity", label: "Longest validity" },
 ];
 
-// Phone compatibility (CLAUDE.md): a 5G phone runs every verified promo, so the
-// useful questions are "does it work on my 4G phone?" and "which need 5G?".
+const VALIDITY_OPTIONS: Array<{ value: "" | ValidityBand; label: string }> = [
+  { value: "", label: "Any" },
+  { value: "1-3", label: "1–3 days" },
+  { value: "4-7", label: "4–7 days" },
+  { value: "8-30", label: "8–30 days" },
+  { value: "31+", label: "Over 30 days" },
+  { value: "no-expiry", label: "No expiry" },
+];
+
 const COMPATIBILITY_OPTIONS: Array<{ value: "" | PromoCompatibility; label: string }> = [
   { value: "", label: "Any phone" },
   { value: "FOUR_G", label: "Works on a 4G phone" },
@@ -57,25 +69,22 @@ const LEGACY_COMPATIBILITY: Partial<Record<string, PromoCompatibility>> = {
   FOUR_G_AND_FIVE_G: "FOUR_G",
 };
 
-const FIELD_CLASS =
-  "rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950";
-const MUTED = "text-zinc-500 dark:text-zinc-400";
+/** Shown beside a promo only when it is not the usual "works on any 4G or 5G phone". */
+const COMPATIBILITY_FLAGS: Partial<Record<PromoCompatibility, string>> = {
+  FIVE_G: "Needs a 5G phone",
+  FOUR_G: "4G only",
+  UNKNOWN: "4G/5G not verified",
+};
+
+const MUTED = "text-fg-4";
+
+type Params = Record<string, string | string[] | undefined>;
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-/** Changes whenever any filter in the address changes, so the form shows the current filters. */
-function filterFormKey(params: Record<string, string | string[] | undefined>): string {
-  return ["q", "provider", "min", "max", "compatibility", "sort", "inactive"]
-    .map((name) => `${name}=${first(params[name]) ?? ""}`)
-    .join("&");
-}
-
-function parseFilter(params: Record<string, string | string[] | undefined>): {
-  filter: PromoFilter;
-  budget: BudgetRange;
-} {
+function parseFilter(params: Params): { filter: PromoFilter; budget: BudgetRange } {
   const sortParam = first(params.sort);
   const sort = SORT_OPTIONS.some((option) => option.value === sortParam)
     ? (sortParam as SortKey)
@@ -93,10 +102,11 @@ function parseFilter(params: Record<string, string | string[] | undefined>): {
 
   return {
     filter: {
-      providerId: first(params.provider) || undefined,
+      providerIds: parseProviderIds(params.provider),
       minPriceCentavos: budget.minCentavos,
       maxPriceCentavos: budget.maxCentavos,
       compatibility,
+      validity: parseValidityBand(first(params.validity)),
       includeInactive: first(params.inactive) === "1",
       search: normalizeSearch(first(params.q)),
       sort,
@@ -106,137 +116,297 @@ function parseFilter(params: Record<string, string | string[] | undefined>): {
 }
 
 /**
- * One cell. Below the xl breakpoint the table collapses into cards (two columns
- * from md), so each cell shows its own label; from xl up the column header
- * takes over and the inline label is hidden (display: none also removes it for
- * screen readers).
+ * The listing's address without one filter, or without one value of a filter
+ * that can repeat (one provider of several), and back on the first page.
  */
-function Cell({
-  label,
-  children,
-  className = "",
-}: {
-  label: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
+function withoutParam(params: Params, name: string, value?: string): string {
+  const next = new URLSearchParams();
+  for (const [key, raw] of Object.entries(params)) {
+    if (key === "show") continue;
+    for (const text of Array.isArray(raw) ? raw : raw ? [raw] : []) {
+      if (!text || (key === name && (value === undefined || text === value))) continue;
+      next.append(key, text);
+    }
+  }
+  const query = next.toString();
+  return query ? `/?${query}` : "/";
+}
+
+/**
+ * Why a promo has no GB per ₱100, in a few words for a row. The full rules are
+ * under "How value is calculated" (docs/ranking.md).
+ */
+function shortReason(reason: string | undefined): string {
+  if (!reason) return "Not scored";
+  if (reason.includes("unlimited")) return "Unlimited data";
+  if (reason.includes("data allowance")) return "No data allowance";
+  if (reason.includes("price")) return "Price unknown";
+  if (reason.includes("validity")) return "Validity unknown";
+  return reason;
+}
+
+/** Calls and texts; each label stays with its value, so a line only breaks between them. */
+function CallsAndTexts({ promo }: { promo: PublishedPromo["promo"] }) {
+  const calls = formatCalls(promo);
+  const texts = formatTexts(promo);
+  if (calls === "Unlimited" && texts === "Unlimited") return <>Unlimited calls and texts</>;
   return (
-    <td className={`flex gap-3 px-2 py-1 xl:table-cell xl:py-3 ${className}`}>
-      <span className={`w-28 shrink-0 text-xs font-medium xl:hidden ${MUTED}`}>{label}</span>
-      <span className="min-w-0">{children}</span>
-    </td>
+    <>
+      <span className="whitespace-nowrap">Calls: {calls}</span> ·{" "}
+      <span className="whitespace-nowrap">Texts: {texts}</span>
+    </>
   );
 }
 
-function PromoRow({ entry }: { entry: PublishedPromo }) {
-  const { id, promo, metrics, providerName } = entry;
-  const inactive = promo.status !== "ACTIVE";
-
+/** The phone row's short check line: "Checked Nov 26 · Source" (full source name for screen readers). */
+function ShortChecked({ entry }: { entry: PublishedPromo }) {
+  const { promo, providerName } = entry;
+  const date = promo.lastVerifiedAt
+    ? `Checked ${promo.lastVerifiedAt.toLocaleDateString("en-PH", { day: "numeric", month: "short", timeZone: "Asia/Manila" })}`
+    : "Check date unknown";
+  const link = sourceLinkFor(promo.sourceUrl, providerName, entry.providerPromoPageUrl);
+  // The source stays visible (every promo shows its source or says it has none).
   return (
-    <tr
-      className={`mb-3 block rounded-lg border border-zinc-200 py-2 align-top md:mb-0 xl:table-row xl:rounded-none xl:border-0 xl:border-b xl:py-0 dark:border-zinc-800 ${
-        inactive ? "bg-zinc-50 dark:bg-zinc-900/60" : ""
-      }`}
-    >
-      <td className="float-right px-3 py-1 xl:float-none xl:table-cell xl:px-2 xl:py-3">
-        <CompareCheckbox id={id} name={promo.name} className="size-5 xl:size-4" />
-      </td>
-      <th scope="row" className="block px-2 pt-1 pb-2 text-left font-medium xl:table-cell xl:py-3">
-        {promo.name}
-        <span className="mt-1 block">
-          <Link
-            href={`/providers/${promo.providerId}`}
-            aria-label={`${providerName} provider page`}
-            className="inline-block rounded focus-visible:outline-2 focus-visible:outline-offset-2"
-          >
-            <ProviderBadge name={providerName} link />
-          </Link>
+    <span className="whitespace-nowrap">
+      {date} ·{" "}
+      {link ? (
+        <a
+          href={link.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Source: ${link.label}`}
+          className="underline underline-offset-2"
+        >
+          Source
+        </a>
+      ) : (
+        "No source link"
+      )}
+    </span>
+  );
+}
+
+function Flags({ entry }: { entry: PublishedPromo }) {
+  const { promo } = entry;
+  const compatibilityFlag = COMPATIBILITY_FLAGS[promo.compatibility];
+  const flags = [
+    promo.status !== "ACTIVE" ? formatStatus(promo.status) : null,
+    // The sheet supplied this 4G/5G value for a scraped promo: say so.
+    compatibilityFlag && entry.compatibilityCheckedManually
+      ? `${compatibilityFlag} (checked manually)`
+      : (compatibilityFlag ?? null),
+  ].filter((flag): flag is string => flag !== null);
+  if (flags.length === 0) return null;
+  return (
+    <>
+      {flags.map((flag) => (
+        <span
+          key={flag}
+          className="rounded-md border border-line-strong px-1.5 text-[11px] leading-[18px] font-medium text-fg-2"
+        >
+          {flag}
         </span>
-        <span className={`mt-1 block text-xs font-normal ${MUTED}`}>
-          {formatChecked(promo.lastVerifiedAt, entry.origin)} ·{" "}
-          <SourceLink
-            compact
-            sourceUrl={promo.sourceUrl}
-            providerName={providerName}
-            providerPromoPageUrl={entry.providerPromoPageUrl}
-          />
+      ))}
+    </>
+  );
+}
+
+
+
+function AllAccessNote({ entry }: { entry: PublishedPromo }) {
+  const { metrics } = entry;
+  if (metrics.comparableGb === null || metrics.totalGb === null || metrics.comparableGb === metrics.totalGb) {
+    return null;
+  }
+  return <span className={`block text-xs ${MUTED}`}>{formatGb(metrics.comparableGb)} works on any app</span>;
+}
+
+function ValueBar({ percent }: { percent: number | null }) {
+  if (percent === null) return null;
+  return (
+    <span aria-hidden="true" className="block h-1 w-16 overflow-hidden rounded-full bg-line-soft">
+      <span className="block h-full rounded-full bg-fg-4" style={{ width: `${percent}%` }} />
+    </span>
+  );
+}
+
+function perDay(entry: PublishedPromo): string {
+  const { promo, metrics } = entry;
+  if (promo.noExpiry) return "No expiry";
+  return `${formatPerDay(metrics.dataPerDayGb, "gb")} · ${formatPerDay(metrics.pricePerDayPhp, "php")}`;
+}
+
+/** Desktop row: name and source on the left, numbers right-aligned in fixed columns. */
+function PromoTableRow({ entry, top }: { entry: PublishedPromo; top: number | null }) {
+  const { id, promo, metrics } = entry;
+  const scored = metrics.scoreable && metrics.gbPerHundredPesos !== null;
+  return (
+    <tr className="border-t border-line-soft has-[:checked]:bg-raised">
+      <td className="py-3 pr-1 pl-4 align-middle">
+        <CompareCheckbox id={id} name={promo.name} className="block size-[18px] accent-fg" />
+      </td>
+      <th scope="row" className="px-3 py-3 text-left align-middle font-normal">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-[590] text-fg">{promo.name}</span>
+          <Flags entry={entry} />
+        </span>
+        <span className={`mt-1 block text-xs ${MUTED}`}>
+          <span className="font-medium text-fg-3">{entry.providerName} · </span>
+          <ShortChecked entry={entry} />
         </span>
       </th>
-      <Cell label="Status">
-        <span className={inactive ? "font-medium text-amber-800 dark:text-amber-300" : ""}>
-          {formatStatus(promo.status)}
-        </span>
-      </Cell>
-      <Cell label="Price" className="xl:whitespace-nowrap">
-        {formatPeso(promo.priceCentavos)}
-      </Cell>
-      <Cell label="Data">
+      <td className="px-3 py-3 text-right align-middle tabular-nums whitespace-nowrap text-fg">
         {formatDataAllocation(promo.dataKind, metrics.totalGb)}
-        {metrics.comparableGb !== null &&
-        metrics.totalGb !== null &&
-        metrics.comparableGb !== metrics.totalGb ? (
-          <span className={`block text-xs ${MUTED}`}>
-            {formatGb(metrics.comparableGb)} all-access
-          </span>
-        ) : null}
-      </Cell>
-      <Cell label="Validity" className="xl:whitespace-nowrap">
+        <AllAccessNote entry={entry} />
+      </td>
+      <td className="px-3 py-3 text-right align-middle tabular-nums whitespace-nowrap text-fg-2">
         {formatValidity(promo.validityValue, promo.validityUnit, promo.noExpiry)}
-      </Cell>
-      <Cell label="4G/5G" className="xl:whitespace-nowrap">
-        {COMPATIBILITY_LABELS[promo.compatibility]}
-        {entry.compatibilityCheckedManually ? (
-          <span className={`block text-xs ${MUTED}`}>Checked manually</span>
-        ) : null}
-        {COMPATIBILITY_NOTES[promo.compatibility] ? (
-          <span className={`block max-w-40 whitespace-normal text-xs ${MUTED}`}>
-            {COMPATIBILITY_NOTES[promo.compatibility]}
-          </span>
-        ) : null}
-      </Cell>
-      <Cell label="Calls / texts">
-        <span className="block">Calls: {formatCalls(promo)}</span>
-        <span className="block">Texts: {formatTexts(promo)}</span>
-      </Cell>
-      <Cell label="Value">
-        {metrics.scoreable && metrics.gbPerHundredPesos !== null ? (
+      </td>
+      <td className="px-3 py-3 align-middle text-[13px] leading-snug text-fg-3">
+        <CallsAndTexts promo={promo} />
+      </td>
+      <td className="px-3 py-3 text-right align-middle text-[15px] font-medium tabular-nums whitespace-nowrap text-fg">
+        {formatPeso(promo.priceCentavos)}
+      </td>
+      <td className="py-3 pr-4 pl-3 text-right align-middle">
+        {scored ? (
           <>
-            <span className="font-medium">{metrics.gbPerHundredPesos.toFixed(2)} GB per ₱100</span>
-            <span className={`block text-xs ${MUTED}`}>
-              {promo.noExpiry
-                ? "No expiry, so no per-day figures"
-                : `${formatPerDay(metrics.dataPerDayGb, "gb")} · ${formatPerDay(metrics.pricePerDayPhp, "php")}`}
+            <span className="flex items-center justify-end gap-2.5">
+              <ValueBar percent={valueBarPercent(metrics.gbPerHundredPesos, top)} />
+              <span className="min-w-12 text-[15px] font-[590] text-white tabular-nums">
+                {metrics.gbPerHundredPesos!.toFixed(2)}
+              </span>
             </span>
+            <span className={`mt-1 block text-xs tabular-nums ${MUTED}`}>{perDay(entry)}</span>
           </>
         ) : (
           <>
-            <span className="text-zinc-600 dark:text-zinc-400">Not comparable</span>
-            <span className={`block text-xs ${MUTED}`}>{metrics.reason}</span>
+            <span className="text-sm text-fg-2">Not comparable</span>
+            <span className={`mt-1 block text-xs ${MUTED}`}>{shortReason(metrics.reason)}</span>
           </>
         )}
-      </Cell>
+      </td>
     </tr>
   );
 }
 
-export default async function HomePage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+/** Phone and tablet card: name, provider and source, then the numbers as labelled pairs. */
+function PromoListItem({ entry, top }: { entry: PublishedPromo; top: number | null }) {
+  const { id, promo, metrics } = entry;
+  const scored = metrics.scoreable && metrics.gbPerHundredPesos !== null;
+  const allAccess =
+    metrics.comparableGb !== null && metrics.totalGb !== null && metrics.comparableGb !== metrics.totalGb;
+  return (
+    <li className="rounded-xl border border-line bg-surface p-4 has-[:checked]:border-line-strong has-[:checked]:bg-raised">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] leading-snug font-[590] text-fg">{promo.name}</p>
+          <p className={`mt-1 text-xs ${MUTED}`}>
+            <span className="font-medium text-fg-3">{entry.providerName} · </span>
+            <ShortChecked entry={entry} />
+          </p>
+          <p className="mt-2 flex flex-wrap gap-1.5 empty:hidden">
+            <Flags entry={entry} />
+          </p>
+        </div>
+        <label className="-mt-2 -mr-2 flex size-11 shrink-0 items-center justify-center">
+          <CompareCheckbox id={id} name={promo.name} className="size-5 accent-fg" />
+        </label>
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3.5 border-t border-line-soft pt-3.5">
+        <div>
+          <dt className={`text-xs ${MUTED}`}>Price</dt>
+          <dd className="mt-0.5 text-lg leading-tight font-[590] tracking-[-0.02em] text-fg tabular-nums">
+            {formatPeso(promo.priceCentavos)}
+          </dd>
+        </div>
+        <div>
+          <dt className={`text-xs ${MUTED}`}>GB per ₱100</dt>
+          {scored ? (
+            <dd className="mt-0.5">
+              <span className="block text-lg leading-tight font-[590] text-white tabular-nums">
+                {metrics.gbPerHundredPesos!.toFixed(2)}
+              </span>
+              <span className="mt-1.5 block">
+                <ValueBar percent={valueBarPercent(metrics.gbPerHundredPesos, top)} />
+              </span>
+            </dd>
+          ) : (
+            <dd className="mt-0.5">
+              <span className="block text-sm text-fg-2">Not comparable</span>
+              <span className={`block text-xs ${MUTED}`}>{shortReason(metrics.reason)}</span>
+            </dd>
+          )}
+        </div>
+        <div>
+          <dt className={`text-xs ${MUTED}`}>Data</dt>
+          <dd className="mt-0.5 text-sm text-fg tabular-nums">
+            {formatDataAllocation(promo.dataKind, metrics.totalGb)}
+            {allAccess ? (
+              <span className={`block text-xs ${MUTED}`}>{formatGb(metrics.comparableGb)} works on any app</span>
+            ) : null}
+          </dd>
+        </div>
+        <div>
+          <dt className={`text-xs ${MUTED}`}>Validity</dt>
+          <dd className="mt-0.5 text-sm text-fg tabular-nums">
+            {formatValidity(promo.validityValue, promo.validityUnit, promo.noExpiry)}
+            {scored ? <span className={`block text-xs ${MUTED}`}>{perDay(entry)}</span> : null}
+          </dd>
+        </div>
+        <div className="col-span-2">
+          <dt className={`text-xs ${MUTED}`}>Calls and texts</dt>
+          <dd className="mt-0.5 text-sm text-fg-2">
+            <CallsAndTexts promo={promo} />
+          </dd>
+        </div>
+      </dl>
+    </li>
+  );
+}
+
+/**
+ * Short labelled explanations under a help heading: label on the left and text
+ * on the right from sm up, label above its text on phones. No bullets.
+ */
+function HelpRows({ rows }: { rows: Array<[string, string]> }) {
+  return (
+    <dl className="mt-5 divide-y divide-line-soft border-y border-line-soft">
+      {rows.map(([label, text]) => (
+        <div key={label} className="grid gap-x-6 gap-y-1 py-3.5 sm:grid-cols-[9.5rem_1fr]">
+          <dt className="text-[13px] font-medium text-fg-3 sm:pt-0.5">{label}</dt>
+          <dd className="text-base leading-relaxed text-pretty text-fg-2">{text}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function FilterPill({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      scroll={false}
+      aria-label={`Remove filter: ${label}`}
+      className="flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface pr-2 pl-3 text-xs text-fg hover:border-line-strong focus-visible:outline-2"
+    >
+      {label}
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="size-3 text-fg-4" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round">
+        <path d="M6 6l12 12M18 6 6 18" />
+      </svg>
+    </Link>
+  );
+}
+
+export default async function HomePage({ searchParams }: { searchParams: Promise<Params> }) {
   await connection();
 
   const params = await searchParams;
   const { filter, budget } = parseFilter(params);
   const { promos, providers, databaseUnavailable } = await loadListing(filter);
-  // Any narrowing filter; "no results" then means the filters, not an empty database.
-  const filtered = Boolean(
-    filter.search ||
-      filter.providerId ||
-      filter.compatibility ||
-      filter.minPriceCentavos !== undefined ||
-      filter.maxPriceCentavos !== undefined,
-  );
+  const providerIds = filter.providerIds ?? [];
+
   const count = (status: string) => promos.filter(({ promo }) => promo.status === status).length;
   const activeCount = count("ACTIVE");
   const outdatedCount = count("OUTDATED");
@@ -244,273 +414,239 @@ export default async function HomePage({
   // Filters and sorting already ran on every promo; this only limits how many are rendered.
   const shown = Math.min(parseShowCount(first(params.show)), promos.length);
   const visible = promos.slice(0, shown);
+  const top = topValue(
+    promos.map(({ metrics }) => (metrics.scoreable ? metrics.gbPerHundredPesos : null)),
+  );
+
+  const providerName = (id: string) => providers.find((provider) => provider.id === id)?.name ?? id;
+  type Pill = { key: string; label: string; href: string };
+  const pill = (key: string, label: string): Pill => ({ key, label, href: withoutParam(params, key) });
+  const pills: Pill[] = [
+    budget.maxCentavos !== undefined ? pill("max", `Up to ${formatPeso(budget.maxCentavos)}`) : null,
+    budget.minCentavos !== undefined ? pill("min", `From ${formatPeso(budget.minCentavos)}`) : null,
+    filter.search ? pill("q", `“${filter.search}”`) : null,
+    filter.validity
+      ? pill("validity", VALIDITY_OPTIONS.find((option) => option.value === filter.validity)!.label)
+      : null,
+    // One pill per provider, so each can be removed on its own.
+    ...providerIds.map((id) => ({
+      key: `provider-${id}`,
+      label: providerName(id),
+      href: withoutParam(params, "provider", id),
+    })),
+    filter.compatibility
+      ? pill("compatibility", COMPATIBILITY_OPTIONS.find((option) => option.value === filter.compatibility)!.label)
+      : null,
+    filter.includeInactive ? pill("inactive", "Including no longer offered") : null,
+  ].filter((item): item is Pill => item !== null);
+  const filtered = pills.length > 0;
+  // "109 of 205 promos": the total is every current promo, so a filtered view loads it once more.
+  const totalCurrent = filtered
+    ? (await loadListing({ sort: filter.sort })).promos.filter(({ promo }) => promo.status === "ACTIVE").length
+    : activeCount;
+
+  const initial: ListingValues = {
+    max: first(params.max) ?? "",
+    min: first(params.min) ?? "",
+    q: filter.search ?? "",
+    validity: filter.validity ?? "",
+    sort: filter.sort,
+    providers: providerIds,
+    compatibility: filter.compatibility ?? "",
+    inactive: filter.includeInactive ?? false,
+  };
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
-      <header className="border-b border-zinc-200 pb-6 dark:border-zinc-800">
-        <h1 className="text-3xl font-semibold tracking-tight">Mobile promos</h1>
-        <div className="mt-3 max-w-2xl space-y-1 text-zinc-700 dark:text-zinc-300">
-          <p>
-            Prepaid promos collected from provider pages or entered manually from them, each with the
-            date it was last verified.
-          </p>
-          <p>Value is ranked on all-access data per peso, not on price alone.</p>
-        </div>
+    <main className="mx-auto w-full max-w-[1200px] px-4 pt-7 pb-16 sm:px-6 md:pt-16 short:pt-7">
+      <header className="grid gap-x-12 gap-y-2.5 md:grid-cols-2 md:items-start md:gap-y-4">
+        <h1 className="text-[28px] leading-[1.1] font-[560] tracking-[-0.03em] text-balance text-fg md:text-[56px] short:text-[28px] md:leading-[1.05] md:tracking-[-0.035em] short:leading-[1.1]">
+          Prepaid
+          <br />
+          promos
+        </h1>
+        <p className="max-w-[46ch] text-[15px] leading-relaxed text-pretty text-fg-2 md:pt-2 md:text-xl md:leading-[1.45] short:pt-0 short:text-[15px] short:leading-relaxed">
+          Checked against each provider&rsquo;s own page, collected automatically where
+          possible.{" "}
+          <span className="text-fg-4">Signal and speed are not ranked.</span>
+        </p>
       </header>
 
-      <form
-        // Remount when the query changes: the fields are uncontrolled, so a link
-        // to "/?provider=dito" would otherwise keep the previous selections.
-        key={filterFormKey(params)}
-        method="get"
-        action="/"
-        className="mt-6 grid gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 lg:grid-cols-5 dark:border-zinc-800 dark:bg-zinc-900"
-      >
-        <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-5">
-          <label htmlFor="q" className="text-sm font-medium">
-            Search promos
-          </label>
-          <input
-            id="q"
-            name="q"
-            type="search"
-            maxLength={60}
-            autoComplete="off"
-            placeholder="Level-Up"
-            defaultValue={filter.search ?? ""}
-            className={FIELD_CLASS}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="provider" className="text-sm font-medium">
-            Provider
-          </label>
-          <select
-            id="provider"
-            name="provider"
-            defaultValue={filter.providerId ?? ""}
-            className={FIELD_CLASS}
-          >
-            <option value="">All providers</option>
-            {providers.map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                {provider.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="min" className="text-sm font-medium">
-            Min budget (₱)
-          </label>
-          <input
-            id="min"
-            name="min"
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="e.g. 50"
-            aria-invalid={budget.invalid.min || undefined}
-            aria-describedby={budget.errors.length > 0 ? "budget-errors" : undefined}
-            defaultValue={first(params.min) ?? ""}
-            className={FIELD_CLASS}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="max" className="text-sm font-medium">
-            Max budget (₱)
-          </label>
-          <input
-            id="max"
-            name="max"
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="e.g. 1,299"
-            aria-invalid={budget.invalid.max || undefined}
-            aria-describedby={budget.errors.length > 0 ? "budget-errors" : undefined}
-            defaultValue={first(params.max) ?? ""}
-            className={FIELD_CLASS}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="compatibility" className="text-sm font-medium">
-            Your phone
-          </label>
-          <select
-            id="compatibility"
-            name="compatibility"
-            defaultValue={filter.compatibility ?? ""}
-            aria-describedby="compatibility-hint"
-            className={FIELD_CLASS}
-          >
-            {COMPATIBILITY_OPTIONS.map((option) => (
-              <option key={option.value || "any"} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <p id="compatibility-hint" className={`text-xs ${MUTED}`}>
-            5G phones work with every promo.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="sort" className="text-sm font-medium">
-            Sort by
-          </label>
-          <select id="sort" name="sort" defaultValue={filter.sort} className={FIELD_CLASS}>
-            {SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <a href="#how-value" className="text-xs underline underline-offset-2">
-            How is value calculated?
-          </a>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:col-span-2 lg:col-span-5">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              name="inactive"
-              value="1"
-              defaultChecked={filter.includeInactive}
-              className="size-4"
-            />
-            Include promos that are no longer offered
-          </label>
-          <div className="flex items-center gap-3">
-            <button
-              type="submit"
-              className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            >
-              Apply filters
-            </button>
-            <Link href="/" className="text-sm underline underline-offset-2">
-              Reset
-            </Link>
-          </div>
-        </div>
-
+      <div className="mt-6 border-y border-line-soft bg-canvas py-3 sm:sticky sm:top-15 sm:z-20 short:static md:mt-14 short:mt-6">
+        <ListingControls
+          initial={initial}
+          providers={providers.map((provider) => ({ value: provider.id, label: provider.name }))}
+          validityOptions={VALIDITY_OPTIONS}
+          compatibilityOptions={COMPATIBILITY_OPTIONS}
+          budgetInvalid={budget.invalid}
+          resultCount={promos.length}
+        >
+          {pills.length > 0 ? (
+            <>
+              <span className={`mr-1 text-xs ${MUTED}`}>Showing</span>
+              {pills.map((pill) => (
+                <FilterPill key={pill.key} href={pill.href} label={pill.label} />
+              ))}
+              <Link
+                href="/"
+                scroll={false}
+                className="ml-1 flex h-8 items-center text-xs text-fg-3 underline underline-offset-4 hover:text-fg"
+              >
+                Clear all
+              </Link>
+            </>
+          ) : null}
+        </ListingControls>
         {budget.errors.length > 0 ? (
-          <ul
-            id="budget-errors"
-            role="alert"
-            className="text-sm text-amber-900 sm:col-span-2 lg:col-span-5 dark:text-amber-200"
-          >
+          <ul id="budget-errors" role="alert" className="mt-2.5 text-[13px] text-fg-2">
             {budget.errors.map((error) => (
               <li key={error}>{error}</li>
             ))}
           </ul>
         ) : null}
-      </form>
-
-      {databaseUnavailable ? null : (
-        <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
-          Where the data comes from:{" "}
-          <Link href="/providers" className="underline underline-offset-2">
-            see each provider&rsquo;s page
-          </Link>
-          .
-        </p>
-      )}
+      </div>
 
       {databaseUnavailable ? (
         <DatabaseNotice />
       ) : promos.length === 0 ? (
-        <section
-          role="status"
-          className="mt-8 rounded-lg border border-zinc-200 p-6 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"
-        >
+        <section role="status" className="mt-6 rounded-xl border border-line bg-surface p-6 text-sm text-fg-3">
           {filtered ? (
             <>
-              <h2 className="text-base font-semibold">No results found.</h2>
-              <p className="mt-1">
-                {filter.search ? `No promo or provider name contains "${filter.search}". ` : ""}
-                Try another search, a wider budget, or another provider or compatibility.
+              <h2 className="text-base font-[590] text-fg">No promos match.</h2>
+              <p className="mt-1.5 max-w-[60ch] leading-relaxed">
+                {filter.search ? `No promo or provider name contains “${filter.search}”. ` : ""}
+                Try a wider budget, another validity, or fewer filters.
                 {filter.includeInactive
                   ? ""
-                  : " Promos that are no longer offered are hidden unless you include them."}
+                  : " Promos that are no longer offered are hidden unless you include them in Filters."}
               </p>
-              <p className="mt-3">
-                <Link href="/" className="underline underline-offset-2">
+              <p className="mt-4">
+                <Link href="/" className="text-fg underline underline-offset-4">
                   Show all promos
                 </Link>
               </p>
             </>
           ) : (
             <>
-              <h2 className="text-base font-semibold">No promos to show yet.</h2>
-              <p className="mt-1">Promo details haven&rsquo;t been published yet. Please check back later.</p>
+              <h2 className="text-base font-[590] text-fg">No promos to show yet.</h2>
+              <p className="mt-1.5">Promo details haven&rsquo;t been published yet. Please check back later.</p>
             </>
           )}
         </section>
       ) : (
-        <form method="get" action="/compare" className="mt-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {shown < promos.length ? `Showing ${shown} of ${promos.length} · ` : ""}
-              {activeCount} current {activeCount === 1 ? "promo" : "promos"}
-              {outdatedCount > 0
-                ? ` · ${outdatedCount} outdated (not re-checked in over ${OUTDATED_AFTER_DAYS} days), listed after`
-                : ""}
-              {unavailableCount > 0 ? ` · ${unavailableCount} no longer offered, listed last` : ""}
-              {filter.compatibility === "UNKNOWN"
-                ? " · showing promos whose 4G/5G compatibility is not yet verified"
-                : filter.compatibility === "FIVE_G"
-                  ? " · showing promos that need a 5G phone"
-                  : filter.compatibility === "FOUR_G"
-                    ? " · showing promos that work on a 4G phone"
-                    : ""}
+        <form method="get" action="/compare" className="mt-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p role="status" className="min-w-0 text-[13px] text-fg-4 tabular-nums">
+              Showing <span className="font-medium text-fg-2">{shown}</span> of{" "}
+              <span className="font-medium text-fg-2">{promos.length}</span>
+              <span className="hidden sm:inline">
+                {" "}
+                · {activeCount} current {activeCount === 1 ? "promo" : "promos"}
+                {filtered ? ` (of ${totalCurrent})` : ""}
+              </span>
             </p>
-            <CompareSubmitButton className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800" />
+            <SortMenu value={filter.sort} options={SORT_OPTIONS} query={withoutParam(params, "sort").replace(/^\/\??/, "")} />
           </div>
+          {outdatedCount > 0 || unavailableCount > 0 ? (
+            <p className={`mb-3 text-xs ${MUTED}`}>
+              {outdatedCount > 0
+                ? `${outdatedCount} outdated (not re-checked in over ${OUTDATED_AFTER_DAYS} days), listed after current ones. `
+                : ""}
+              {unavailableCount > 0 ? `${unavailableCount} no longer offered, listed last.` : ""}
+            </p>
+          ) : null}
+          {top === null ? (
+            <p className="mb-3 rounded-lg border border-line bg-surface px-3.5 py-2.5 text-[13px] leading-relaxed text-fg-3">
+              None of these can be ranked by GB per ₱100: they have unlimited data, no data
+              allowance, or a missing price or validity. They&rsquo;re listed so you can still
+              compare them.
+            </p>
+          ) : null}
+          {/* With JavaScript the floating compare bar does this; without it, this submits the ticked boxes. */}
+          <noscript>
+            <p className="mb-3 flex justify-end">
+              <button
+                type="submit"
+                className="h-9 rounded-lg border border-line px-3 text-[13px] font-medium text-fg-2"
+              >
+                Compare selected
+              </button>
+            </p>
+          </noscript>
 
-          <div className="mt-4 xl:overflow-x-auto">
-            <table className="block w-full border-collapse text-sm xl:table xl:min-w-[72rem]">
+          <ul className="grid gap-3 sm:grid-cols-2 lg:hidden">
+            {visible.map((entry) => (
+              <PromoListItem key={entry.id} entry={entry} top={top} />
+            ))}
+          </ul>
+
+          <div className="hidden overflow-x-auto rounded-xl border border-line bg-surface lg:block">
+            <table className="w-full min-w-[56rem] border-collapse text-sm">
               <caption className="sr-only">
-                Published promos with status, price, data, validity, compatibility, calls and
-                texts, value, verification date and source
+                Promos with price, data, validity, calls and texts, GB per ₱100, check date and
+                source
               </caption>
-              <thead className="hidden xl:table-header-group">
-                <tr className="border-b border-zinc-300 text-left dark:border-zinc-700">
-                  <th scope="col" className="w-10 px-2 py-2">
+              <thead>
+                <tr className="text-xs text-fg-4">
+                  <th scope="col" className="w-10 py-2.5 pr-1 pl-4">
                     <span className="sr-only">Select for comparison</span>
                   </th>
-                  <th scope="col" className="px-2 py-2">Promo</th>
-                  <th scope="col" className="px-2 py-2">Status</th>
-                  <th scope="col" className="px-2 py-2">Price</th>
-                  <th scope="col" className="px-2 py-2">Data</th>
-                  <th scope="col" className="px-2 py-2">Validity</th>
-                  <th scope="col" className="px-2 py-2">4G/5G</th>
-                  <th scope="col" className="px-2 py-2">Calls / texts</th>
-                  <th scope="col" className="px-2 py-2">Value</th>
+                  <th scope="col" className="w-[34%] px-3 py-2.5 text-left font-medium">Promo</th>
+                  <th scope="col" className="px-3 py-2.5 text-right font-medium">Data</th>
+                  <th scope="col" className="px-3 py-2.5 text-right font-medium">Validity</th>
+                  <th scope="col" className="px-3 py-2.5 text-left font-medium">Calls and texts</th>
+                  <th scope="col" className="px-3 py-2.5 text-right font-medium">Price</th>
+                  <th scope="col" className="w-48 py-2.5 pr-4 pl-3 text-right font-medium">
+                    <span className="inline-flex items-center gap-1.5">
+                      GB per ₱100
+                      <button
+                        type="button"
+                        popoverTarget="value-help"
+                        aria-label="What GB per ₱100 means"
+                        className="flex size-6 items-center justify-center rounded-full text-fg-3 hover:bg-raised hover:text-fg focus-visible:outline-2"
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.4M12 17h.01" />
+                        </svg>
+                      </button>
+                    </span>
+                  </th>
                 </tr>
               </thead>
-              <tbody className="block md:grid md:grid-cols-2 md:gap-3 xl:table-row-group">
+              <tbody>
                 {visible.map((entry) => (
-                  <PromoRow key={entry.id} entry={entry} />
+                  <PromoTableRow key={entry.id} entry={entry} top={top} />
                 ))}
               </tbody>
             </table>
           </div>
+
+          <div
+            id="value-help"
+            popover="auto"
+            role="note"
+            className="m-auto w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-line-strong bg-raised p-4 text-sm leading-relaxed text-fg-2 shadow-[0_16px_40px_rgb(0_0_0/0.6)]"
+          >
+            <p className="font-[590] text-fg">GB per ₱100</p>
+            <p className="mt-1">
+              Data you can use on any app, for every ₱100 you pay. Higher means more data for your
+              money. Data that only works on certain apps is left out.
+            </p>
+            <a href="#how-value" className="mt-2 inline-block text-fg underline underline-offset-4">
+              How we calculate it
+            </a>
+          </div>
+
           {shown < promos.length ? (
             <div className="mt-6 flex flex-col items-center gap-2">
               <Link
                 href={showMoreHref(params, shown)}
                 scroll={false}
-                className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                className="flex h-11 items-center rounded-lg border border-line bg-surface px-5 text-sm font-medium text-fg hover:border-line-strong focus-visible:outline-2"
               >
                 Show {Math.min(PAGE_SIZE, promos.length - shown)} more
               </Link>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className={`text-xs tabular-nums ${MUTED}`}>
                 Showing {shown} of {promos.length}
               </p>
             </div>
@@ -518,45 +654,65 @@ export default async function HomePage({
         </form>
       )}
 
-      <section className="mt-10 border-t border-zinc-200 pt-6 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
-        <h2
-          id="how-value"
-          className="scroll-mt-6 text-base font-semibold text-zinc-900 dark:text-zinc-100"
-        >
-          How value is calculated
-        </h2>
-        <p className="mt-2 max-w-3xl font-medium text-zinc-800 dark:text-zinc-200">
-          Value = (all-access GB ÷ price in pesos) × 100, shown as GB per ₱100.
-        </p>
-        <ul className="mt-2 max-w-3xl list-disc space-y-1 pl-5">
-          <li>
-            When a provider splits its allowance, only the all-access part counts, so app-specific
-            or 5G bonus data does not inflate the score.
-          </li>
-          <li>Promos that never expire are scored the same way, but have no per-day figures.</li>
-          <li>Unlimited promos and promos with unknown data or validity are listed but not scored.</li>
-          <li>
-            Coverage and speed are not part of the score yet, because no reliable source has been
-            agreed. The top promo has the most data per peso; it is not the &ldquo;best&rdquo;
-            overall.
-          </li>
-        </ul>
-        <h2 className="mt-6 text-base font-semibold text-zinc-900 dark:text-zinc-100">
-          About 4G and 5G
-        </h2>
-        <ul className="mt-2 max-w-3xl list-disc space-y-1 pl-5">
-          <li>
-            &ldquo;5G only&rdquo; promos need a 5G phone and 5G signal where you use them.
-          </li>
-          <li>
-            5G signal can be patchy: coverage maps built from other users&rsquo; tests can show 5G
-            in an area where most connections are still on 4G. Check the coverage where you use
-            your phone before choosing a 5G-only promo.
-          </li>
-          <li>&ldquo;4G and 5G&rdquo; promos work on any 4G (LTE) phone.</li>
-        </ul>
-      </section>
+      <div className="mt-16 divide-y divide-line-soft border-t border-line-soft">
+        <section className="grid gap-x-12 gap-y-4 py-10 md:grid-cols-2" aria-labelledby="how-value">
+          <h2
+            id="how-value"
+            className="scroll-mt-20 text-xl leading-tight font-[590] tracking-[-0.02em] text-fg sm:scroll-mt-40 md:text-2xl"
+          >
+            How value is calculated
+          </h2>
+          <div>
+            <p className="text-lg leading-snug text-pretty text-fg md:text-xl">
+              GB per ₱100 = all-access GB ÷ <span className="whitespace-nowrap">price × 100.</span>{" "}
+              <span className="text-fg-3">
+                The more data you get for your money, the higher it scores.
+              </span>
+            </p>
+            <HelpRows
+              rows={[
+                ["Split allowances", "Only data you can use on any app counts. App-only or 5G bonus data doesn’t."],
+                ["No expiry", "Scored the same way, just without per-day figures."],
+                ["Not scored", "Unlimited data, or data or validity that wasn’t published."],
+                [
+                  "Not included",
+                  "Coverage and speed. The top promo gives the most data per peso, not the “best” overall.",
+                ],
+              ]}
+            />
+          </div>
+        </section>
+        <section className="grid gap-x-12 gap-y-4 py-10 md:grid-cols-2" aria-labelledby="about-4g-5g">
+          <h2 id="about-4g-5g" className="scroll-mt-20 text-xl leading-tight font-[590] tracking-[-0.02em] text-fg sm:scroll-mt-40 md:text-2xl">
+            About 4G and 5G
+          </h2>
+          <div>
+            <p className="text-lg leading-snug text-pretty text-fg md:text-xl">
+              No label means it works on any 4G (LTE) phone.
+            </p>
+            <HelpRows
+              rows={[
+                ["Needs a 5G phone", "Needs a 5G phone and 5G signal where you use it."],
+                [
+                  "Patchy 5G",
+                  "Coverage maps can show 5G where most connections are still 4G. Check where you actually use your phone.",
+                ],
+              ]}
+            />
+            <Link
+              href="/providers"
+              className="mt-6 inline-flex items-center gap-1.5 text-[15px] text-fg-2 underline underline-offset-4 hover:text-fg"
+            >
+              Where the data comes from
+              <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14M13 6l6 6-6 6" />
+              </svg>
+            </Link>
+          </div>
+        </section>
+      </div>
       <CompareTray />
+      <HashScroll />
     </main>
   );
 }

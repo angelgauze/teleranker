@@ -76,13 +76,13 @@ export function CompareTray() {
   const trayRef = useRef<HTMLElement>(null);
   const open = picks.length > 0;
 
-  // Pads the page by the tray's height, so the end of the page (and the footer)
-  // never hides behind it.
+  // Pads the page by the bar's height plus its gap, so the end of the page (and
+  // the footer) never hides behind it.
   useEffect(() => {
     const tray = trayRef.current;
     if (!open || !tray) return;
     const pad = () => {
-      document.body.style.paddingBottom = `${tray.offsetHeight}px`;
+      document.body.style.paddingBottom = `${tray.offsetHeight + 32}px`;
     };
     pad();
     const observer = new ResizeObserver(pad);
@@ -101,54 +101,50 @@ export function CompareTray() {
       ref={trayRef}
       id={COMPARE_TRAY_ID}
       aria-label="Promos to compare"
-      className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-300 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900"
+      className="fixed inset-x-3 bottom-4 z-20 mx-auto max-w-[44rem] rounded-xl border border-line-strong bg-raised text-fg sm:inset-x-6 sm:bg-raised/95 sm:shadow-[0_20px_50px_rgb(0_0_0/0.6)] sm:backdrop-blur-md"
     >
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
-        <div className="min-w-0 flex-1 text-sm" aria-live="polite">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5 pr-2.5 pl-4">
+        <div className="min-w-0 flex-1 basis-full min-[520px]:basis-0" aria-live="polite">
           {notice ? (
-            <p className="font-medium text-amber-800 dark:text-amber-300">{notice}</p>
+            <p className="text-sm font-medium">{notice}</p>
           ) : (
-            // One line per pick, each cut short on its own, so both names always show.
-            <ol className="space-y-0.5">
-              {picks.map((pick, index) => (
-                <li key={pick.id} className="truncate">
-                  <span className="font-semibold">{index + 1}.</span> {pick.name}
-                </li>
-              ))}
-              {ready ? null : (
-                <li className="truncate text-zinc-600 dark:text-zinc-400">
-                  <span className="font-semibold">2.</span> Pick 1 more
-                </li>
-              )}
-            </ol>
+            <>
+              <p className="text-xs text-fg-4 tabular-nums">
+                {picks.length} of {MAX_PICKS} picked
+              </p>
+              <ol className="text-sm leading-snug font-medium">
+                {picks.map((pick) => (
+                  <li key={pick.id}>{pick.name}</li>
+                ))}
+                {ready ? null : <li className="font-normal text-fg-3">Pick one more</li>}
+              </ol>
+            </>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={clearComparePicks}
+          className="ml-auto h-11 shrink-0 rounded-lg px-3 text-sm text-fg-3 hover:bg-selected hover:text-fg focus-visible:outline-2 min-[520px]:ml-0"
+        >
+          Clear
+        </button>
+        {ready ? (
+          <Link
+            href={compareHref(picks)}
+            className="flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-fg px-4 text-sm font-[590] text-canvas hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
+            Compare
+          </Link>
+        ) : (
           <button
             type="button"
-            onClick={clearComparePicks}
-            className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            aria-disabled="true"
+            onClick={() => showCompareNotice("Pick one more promo to compare.")}
+            className="flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-line-strong px-4 text-sm font-medium text-fg-4 focus-visible:outline-2"
           >
-            Clear
+            Compare
           </button>
-          {ready ? (
-            <Link
-              href={compareHref(picks)}
-              className="rounded bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            >
-              Compare <span aria-hidden="true">→</span>
-            </Link>
-          ) : (
-            <button
-              type="button"
-              aria-disabled="true"
-              onClick={() => showCompareNotice("Pick one more promo to compare.")}
-              className="rounded border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
-            >
-              Compare <span aria-hidden="true">→</span>
-            </button>
-          )}
-        </div>
+        )}
       </div>
     </section>
   );

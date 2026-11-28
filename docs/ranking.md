@@ -55,6 +55,67 @@ group is sorted the same way:
 The budget filter applies to price before sorting. Promos that work on both
 4G and 5G phones appear under both the 4G and the 5G filter.
 
+## Plan: total cost for your days
+
+The Plan page (`/plan`) orders promos a second way: by what they cost for the
+days the visitor needs. It is separate from the value score above and never
+changes it. Implementation: `src/lib/compare/needs.ts` (`planForNeeds`, one
+promo) and `src/lib/plan/rank.ts` (`rankPlans`, every promo); tests:
+`needs.test.ts`, `rank.test.ts`.
+
+### Inputs
+
+| Input | Rule |
+| --- | --- |
+| Days `N` | Whole days 1–365; defaults to 30 |
+| Data per day `d` | Optional, 0.1–50 GB |
+| Budget `B` | Optional, ₱1–₱100,000 |
+| 4G-only phone | Optional; promos that need a 5G phone are left out |
+| Providers | Optional; none means every provider |
+
+### Per promo
+
+The visitor is assumed to buy the promo again each time it expires or its data
+runs out; unused data does not carry over and only all-access data `G` counts.
+
+| Term | Formula |
+| --- | --- |
+| Buys for the days | `ceil(N ÷ D)`; 1 for no-expiry promos |
+| Buys for the data | `ceil(N × d ÷ G)` when `d` is given; 1 otherwise or for unlimited data |
+| Buys | `max(buys for the days, buys for the data, 1)` |
+| Total cost | `buys × P` |
+| Total data | `buys × G`; "Unlimited" for unlimited promos |
+| Budget fit | `total ≤ B`, with the peso gap either way |
+
+Example: 30 days, ₱70 for 7 days with 10 GB → 5 buys, **₱350**, 50 GB; ₱299
+for 30 days → 1 buy, **₱299**.
+
+### Order
+
+1. Promos within the budget first (when a budget is given).
+2. Lowest total cost.
+3. Fewer buys.
+4. More data (unlimited first).
+5. Name.
+
+Promos tied on the lowest total are all marked "Lowest cost", and the answer
+line says it is a tie instead of naming one.
+
+### Left out or set apart
+
+| Case | Treatment |
+| --- | --- |
+| Unknown validity, zero or missing price | Not costed; listed under "Can't calculate" with the reason |
+| Unknown or missing data amount when `d` is given | Not costed, with the reason |
+| `NONE` data (calls and texts only) | Left out, counted in a "Left out" note |
+| Needs a 5G phone, with a 4G-only phone | Left out, counted in the note |
+| Unverified 4G/5G with a 4G-only phone | Kept, labelled "4G support not verified" |
+| Outdated or no longer offered | Not planned; only current promos |
+
+Without `d`, the cheapest promos may include very little data; the page says
+so and asks for the daily amount. Coverage and speed are not part of the plan,
+and nothing is called "best".
+
 ## Limitations
 
 1. Price and data only: no coverage or speed.
