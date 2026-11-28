@@ -114,6 +114,10 @@ the right (two equal columns from `md`, 48px gap). Sections below reuse the
 same two columns, so content always starts where the intro does. Breakpoints:
 `sm` 640px, `md` 768px, `lg` 1024px.
 
+**Short screens** (`short`, at most 512px tall: a phone on its side) are wide
+enough for the desktop rules but too short for them. They keep the phone-sized
+title, intro and top spacing, and nothing is pinned except the header.
+
 ### Header
 
 Pinned on every page, solid `canvas`, 56px (60px from `sm`). Logo on the left;
@@ -125,13 +129,15 @@ height.
 
 ### Promos listing
 
-- A toolbar pinned under the header from `sm`: budget box, search, validity
-  switch, Filters. Changes apply live and update the address.
+- A toolbar pinned under the header from `sm` (not on short screens): budget
+  box, search, validity switch, Filters. Changes apply live and update the
+  address.
 - The Filters sheet holds providers (several at once), phone type, lowest price
   and "include no longer offered"; its button reports the live count ("Show 36
   promos").
 - Removable filter pills; a results bar with the count and Sort.
-- A dense table from `lg`; cards on phones. "Show 24 more" below.
+- A dense table from `lg`; cards below it, one a row on phones and two a row
+  from `sm`. "Show 24 more" below.
 - Help sections at the bottom: heading left; a lead sentence and labelled rows
   right.
 
@@ -144,7 +150,8 @@ height.
 - A slim title bar; the summary (one ↑ line per promo with what it does better,
   then ≠, = and ? lines); the **All fields / Differences** switch with "My phone
   is 4G only"; then the table.
-- Table: labels left, one column per promo, names and prices pinned, ✕ Remove in
+- Table: labels left, one column per promo, names and prices pinned (scrolling
+  with the rows on short screens), ✕ Remove in
   each column header (pop-up only). Rows where one promo is ahead are banded,
   with its value bold white and tagged; matching values are `fg-4`. Source is
   the last row. Phones open on Differences.
@@ -306,6 +313,8 @@ Rules for code that follows this design:
 - **Links.** Use `next/link` for in-site links, except links out of the Compare
   pop-up and links to a section on another page, which are plain `<a>`.
 - **Phones.** Check at 390px wide: no sideways scroll, tap targets at least
-  44px, no blur.
+  44px, no blur. Check landscape too (844 × 390): page titles and spacing add
+  `short:` to their `md:` sizes, and anything pinned other than the header
+  adds `short:static`.
 - **Reuse.** `ProviderBadge`, `StatusMark`, `SourceLink`, `HashScroll`,
   `RetryButton` and the class constants in `compare-table.ts` already exist.

@@ -457,21 +457,21 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   };
 
   return (
-    <main className="mx-auto w-full max-w-[1200px] px-4 pt-7 pb-16 sm:px-6 md:pt-16">
+    <main className="mx-auto w-full max-w-[1200px] px-4 pt-7 pb-16 sm:px-6 md:pt-16 short:pt-7">
       <header className="grid gap-x-12 gap-y-2.5 md:grid-cols-2 md:items-start md:gap-y-4">
-        <h1 className="text-[28px] leading-[1.1] font-[560] tracking-[-0.03em] text-balance text-fg md:text-[56px] md:leading-[1.05] md:tracking-[-0.035em]">
+        <h1 className="text-[28px] leading-[1.1] font-[560] tracking-[-0.03em] text-balance text-fg md:text-[56px] short:text-[28px] md:leading-[1.05] md:tracking-[-0.035em] short:leading-[1.1]">
           Prepaid
           <br />
           promos
         </h1>
-        <p className="max-w-[46ch] text-[15px] leading-relaxed text-pretty text-fg-2 md:pt-2 md:text-xl md:leading-[1.45]">
+        <p className="max-w-[46ch] text-[15px] leading-relaxed text-pretty text-fg-2 md:pt-2 md:text-xl md:leading-[1.45] short:pt-0 short:text-[15px] short:leading-relaxed">
           Checked against each provider&rsquo;s own page, collected automatically where
           possible.{" "}
           <span className="text-fg-4">Signal and speed are not ranked.</span>
         </p>
       </header>
 
-      <div className="mt-6 border-y border-line-soft bg-canvas py-3 sm:sticky sm:top-15 sm:z-20 md:mt-14">
+      <div className="mt-6 border-y border-line-soft bg-canvas py-3 sm:sticky sm:top-15 sm:z-20 short:static md:mt-14 short:mt-6">
         <ListingControls
           initial={initial}
           providers={providers.map((provider) => ({ value: provider.id, label: provider.name }))}
@@ -573,7 +573,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             </p>
           </noscript>
 
-          <ul className="flex flex-col gap-3 lg:hidden">
+          <ul className="grid gap-3 sm:grid-cols-2 lg:hidden">
             {visible.map((entry) => (
               <PromoListItem key={entry.id} entry={entry} top={top} />
             ))}

@@ -3,6 +3,10 @@
 /* Dark only for the first release (docs/DESIGN.md): the dark styles always apply. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* A phone on its side: wide enough for desktop rules, too short for desktop-sized
+   titles or pinned bars (docs/DESIGN.md, Page frame). */
+@custom-variant short (@media (max-height: 32rem));
+
 @theme inline {
   --font-sans:
     var(--font-inter), -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI",

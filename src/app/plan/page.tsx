@@ -87,14 +87,14 @@ export default async function PlanPage({ searchParams }: Props) {
   const needsLabel = result.state === "ok" ? pluralDays(result.needs.days) : "your days";
 
   return (
-    <main className="mx-auto w-full max-w-[1200px] px-4 pt-7 pb-16 tabular-nums sm:px-6 md:pt-16">
+    <main className="mx-auto w-full max-w-[1200px] px-4 pt-7 pb-16 tabular-nums sm:px-6 md:pt-16 short:pt-7">
       <header className="grid gap-x-12 gap-y-2.5 md:grid-cols-2 md:items-start md:gap-y-4">
-        <h1 className="text-[28px] leading-[1.02] font-[560] tracking-[-0.035em] text-fg md:text-[56px]">
+        <h1 className="text-[28px] leading-[1.02] font-[560] tracking-[-0.035em] text-fg md:text-[56px] short:text-[28px]">
           Plan for
           <br />
           your needs
         </h1>
-        <p className="max-w-[34rem] text-[15px] leading-relaxed text-fg-2 md:pt-2 md:text-xl md:leading-snug">
+        <p className="max-w-[34rem] text-[15px] leading-relaxed text-fg-2 md:pt-2 md:text-xl md:leading-snug short:pt-0 short:text-[15px] short:leading-relaxed">
           The cheapest way to have data for the days you need, buying again as each promo runs out.{" "}
           <span className="text-fg-4">Signal and speed are not included.</span>
         </p>
@@ -106,7 +106,7 @@ export default async function PlanPage({ searchParams }: Props) {
         </p>
       ) : null}
 
-      <div className="mt-8 border-t border-line-soft md:mt-14">
+      <div className="mt-8 border-t border-line-soft md:mt-14 short:mt-6">
         <PlanControls
           initial={initial}
           pair={entries ? { ids, names: [entries[0].label, entries[1].label], active: pairActive } : null}

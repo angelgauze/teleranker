@@ -146,7 +146,7 @@ export function CompareFields({
         <div
           role="rowgroup"
           // In the pop-up the names pin to its own top; on the full page, under the site header.
-          className={`sticky z-10 border-y border-line ${surface === "panel" ? "top-0 bg-panel" : "top-14 bg-canvas sm:top-15"}`}
+          className={`sticky z-10 border-y border-line short:static ${surface === "panel" ? "top-0 bg-panel" : "top-14 bg-canvas sm:top-15"}`}
         >
           <div role="row" className={GRID}>
             <div role="columnheader" className="flex items-end py-2.5 pr-2 pl-4 text-[11px] text-fg-4 sm:pl-0 md:py-3.5 md:text-xs">

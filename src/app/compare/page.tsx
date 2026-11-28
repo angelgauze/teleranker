@@ -3,7 +3,7 @@ import { compareMetadata, ComparisonBody, loadComparison } from "../_components/
 import { RetryButton } from "../_components/retry-button";
 
 /** The page title used across the site: 28px on phones, 56px on desktop. */
-const TITLE = "text-[28px] leading-[1.02] font-[560] tracking-[-0.035em] text-fg md:text-[56px]";
+const TITLE = "text-[28px] leading-[1.02] font-[560] tracking-[-0.035em] text-fg md:text-[56px] short:text-[28px]";
 
 // The comparison depends on live database state, so it cannot be prerendered.
 export const instant = false;
@@ -20,10 +20,10 @@ export default async function ComparePage({ searchParams }: Props) {
 
   if (comparison.kind === "notice") {
     return (
-      <main className="mx-auto w-full max-w-[1200px] px-4 pt-7 pb-16 sm:px-6 md:pt-16">
+      <main className="mx-auto w-full max-w-[1200px] px-4 pt-7 pb-16 sm:px-6 md:pt-16 short:pt-7">
         <div className="grid gap-x-12 gap-y-2.5 md:grid-cols-2 md:items-start md:gap-y-4">
           <h1 className={TITLE}>{comparison.title}</h1>
-          <div className="max-w-[34rem] space-y-4 text-[15px] leading-relaxed text-fg-2 md:pt-2 md:text-xl md:leading-snug">
+          <div className="max-w-[34rem] space-y-4 text-[15px] leading-relaxed text-fg-2 md:pt-2 md:text-xl md:leading-snug short:pt-0 short:text-[15px] short:leading-relaxed">
             {comparison.body}
             {comparison.retry ? <RetryButton /> : null}
           </div>
@@ -33,14 +33,14 @@ export default async function ComparePage({ searchParams }: Props) {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1200px] px-4 pt-7 pb-16 tabular-nums sm:px-6 md:pt-16">
+    <main className="mx-auto w-full max-w-[1200px] px-4 pt-7 pb-16 tabular-nums sm:px-6 md:pt-16 short:pt-7">
       <h1 className={TITLE}>
         Compare
         <br />
         promos
       </h1>
       {/* The full page width, so the summary and table leave no dead space. */}
-      <div className="mt-8 md:mt-14">
+      <div className="mt-8 md:mt-14 short:mt-6">
         <ComparisonBody comparison={comparison} params={params} inDialog={false} />
       </div>
     </main>
